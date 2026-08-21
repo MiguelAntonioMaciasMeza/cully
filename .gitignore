@@ -1,2 +1,5 @@
 /Images
-yolo26n.pt
+*.pt
+venv/
+env/
+.venv   
