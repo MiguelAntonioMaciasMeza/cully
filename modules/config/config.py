@@ -7,17 +7,19 @@ default_config = {
 }
 
 
-class Config():
+class Config:
     config_path: Path
     input_path: str
     output_path: str
+
     def __init__(self):
         self.config_path = Path.home() / ".config" / "cully" / "config.json"
+        self.input_path = self._load_config("input_path")
         self.output_path = self._load_config("output_path")
-        self.input_path = self._load_config("output_path")
+        print(self.input_path)
 
-    def _load_config(self,config: str):
-        """Retrieves config.json in .config and loads the settings  
+    def _load_config(self, config: str):
+        """Retrieves config.json in .config and loads the settings
         Args:
             config (str): The name of the setting to retrieve.
         Returns:
@@ -45,17 +47,16 @@ class Config():
                 config_file = json.load(f)
                 return config_file.get(config)
 
-
-    '''update_config
+    """update_config
         args:
             config = config variable wanting to change
             value = new value for that variable
         returns:
             None
             
-    '''
+    """
 
-    def update_cofig(self,config, value):
+    def update_cofig(self, config, value):
         config_path = Path.home() / ".config" / "cully" / "config.json"
         # Create directory if config director doesn't exists
         Path(config_path.parent).mkdir(parents=True, exist_ok=True)
@@ -65,4 +66,3 @@ class Config():
                 config_file[config] = value
             with open(config_path, "w") as f:
                 json.dump(config_file, f, indent=4)
-
