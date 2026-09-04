@@ -30,6 +30,9 @@ class Photo:
     objects: defaultdict[str, BoundingBox] = field(default_factory=defaultdict)
 
     def __post_init__(self):
+        if not self.path_to_photo:
+            raise ValueError("[photo.py] path_to_photo is required")
+
         raw = self.path_to_photo.read_bytes()
         self.image_hash = sha256(raw).hexdigest()
         self.exif_data = ExifReader(self.path_to_photo).get_image_exif()
