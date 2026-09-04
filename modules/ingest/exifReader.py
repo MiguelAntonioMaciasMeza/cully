@@ -7,7 +7,7 @@ import logging
 from enum import Enum
 import pprint
 
-#logging.getLogger("exif").setLevel(logging.ERROR)
+# logging.getLogger("exif").setLevel(logging.ERROR)
 
 SUPPORTED_SUFFIXES = {".jpg", ".jpeg", ".cr2"}
 
@@ -23,7 +23,7 @@ class uot(Enum):
 
 class ExifReader:
     path: Path
-    image_exif: dict[str, Any] 
+    image_exif: dict[str, Any]
     date_time: datetime | None
 
     def __init__(self, path: Path):
@@ -41,11 +41,34 @@ class ExifReader:
                 self._read_raw_exif(path)
             self._set_date_time()
         except Exception as e:
-            print(f"Missing file exif data from {path.name}: {e}")
+            # print(f"Missing file exif data from {path.name}: {e}")
+            pass
 
     def _read_jpg_exif(self, path: Path):
-        raw = path.read_bytes()
-        self.image_exif = ExifLib(raw).get_all()
+        with open(path, "rb") as f:
+            img = ExifLib(f)
+        self.image_exif = {}
+        
+
+        try:
+            self.image_exif["datetime_original"] = img.datetime_original
+        except (AttributeError, KeyError):
+            self.image_exif["datetime_original"] = None
+
+        try:
+            self.image_exif["subsecond_original"] = img.subsec_time_original
+        except (AttributeError, KeyError):
+            self.image_exif["subsecond_original"] = None
+
+        try:
+            self.image_exif["PixelXDimension"] = img.image_width
+        except (AttributeError, KeyError):
+            self.image_exif["PixelXDimension"] = None
+
+        try:
+            self.image_exif["PixelYDimension"] = img.image_height
+        except (AttributeError, KeyError):
+            self.image_exif["PixelYDimension"] = None
 
     def _read_raw_exif(self, path: Path):
         with open(path, "rb") as f:
@@ -55,6 +78,8 @@ class ExifReader:
         self.image_exif = {
             "datetime_original": str(tags.get("EXIF DateTimeOriginal", "")) or None,
             "subsecond_original": str(tags.get("EXIF SubSecTimeOriginal", "")) or None,
+            "x_resolution": int(tags.get("EXIF PixelXDimension", "")) or None,
+            "y_resolution": int(tags.get("EXIF PixelYDimension", "")) or None,
         }
 
     def _set_date_time(self):
@@ -75,12 +100,18 @@ class ExifReader:
         if self.date_time is None:
             return -1
         match uot.value:
-            case 0: return self.date_time.year
-            case 1: return self.date_time.month
-            case 2: return self.date_time.day
-            case 3: return self.date_time.hour
-            case 4: return self.date_time.minute
-            case 5: return self.date_time.second
+            case 0:
+                return self.date_time.year
+            case 1:
+                return self.date_time.month
+            case 2:
+                return self.date_time.day
+            case 3:
+                return self.date_time.hour
+            case 4:
+                return self.date_time.minute
+            case 5:
+                return self.date_time.second
         return -1
 
     def get_image_exif(self) -> dict[str, Any] | None:
