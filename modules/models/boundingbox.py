@@ -13,6 +13,8 @@ from dataclasses import dataclass, field
 @dataclass
 class BoundingBox():
     confidence: float = field(default_factory=float)
+    model_version: str = field(default_factory=str)
+    name: str = field(default_factory=str)
     x1: int = field(default=0)
     y1: int = field(default=0)
     x2: int = field(default=0)
