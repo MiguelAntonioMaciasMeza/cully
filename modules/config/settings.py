@@ -18,10 +18,14 @@ class SaliencyModels(Enum):
     U2NET = "u2net"
     U2NETP = "u2netp"
 
+class YOLOModel(Enum):
+    NANO = "yolo26n.pt"
+
 
 DEFAULT_SETTINGS = {
     "saliency_scale": float(SaliencyInputScale.U2NETNATIVE.value),
     "saliency_model": str(SaliencyModels.U2NET.value),
+    "YOLOModel":str(YOLOModel.NANO.value),
     "min_dimension": {"saliency": 640, "face": 400, "blur": 300},
     "object_threshold": 75,
 }
@@ -34,6 +38,7 @@ class Settings:
     path: Path = settings_path
     saliency_scale: float = field(default=DEFAULT_SETTINGS["saliency_scale"])
     saliency_model: str = field(default=DEFAULT_SETTINGS["saliency_model"])
+    YOLOModel: str = field(default=DEFAULT_SETTINGS["YOLOModel"])
     min_dimension: dict[str, int] = field(
         default_factory=lambda: DEFAULT_SETTINGS["min_dimension"]
     )
