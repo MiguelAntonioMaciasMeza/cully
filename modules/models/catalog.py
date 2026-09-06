@@ -17,8 +17,8 @@ from pathlib import Path
 
 
 def default_catalog_path() -> str:
-    print(user_data_dir("cully")+ "/catalog.db")
-    return str(user_data_dir("cully")+ "/catalog.db")
+    print(user_data_dir("cully") + "/catalog.db")
+    return str(user_data_dir("cully") + "/catalog.db")
 
 
 @dataclass
@@ -30,7 +30,6 @@ class Catalog:
     cursor: Optional[sqlite3.Cursor] = field(default=None, repr=False, init=False)
 
     def __post_init__(self):
-        
 
         Path(self.catalog_path).parent.mkdir(parents=True, exist_ok=True)
         self.catalog_connection = sqlite3.connect(self.catalog_path)
@@ -57,7 +56,8 @@ class Catalog:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
-        self.cursor.execute("""CREATE TABLE IF NOT EXISTS bounding_boxes (
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS bounding_boxes (
             id INTEGER PRIMARY KEY,
             image_hash TEXT NOT NULL,
             confidence REAL,
@@ -70,7 +70,8 @@ class Catalog:
             FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
             )
             """)
-        self.cursor.execute("""CREATE TABLE IF NOT EXISTS faces(
+        self.cursor.execute("""
+        CREATE TABLE IF NOT EXISTS faces(
         id INTEGER PRIMARY KEY,
         image_hash INTEGER,
         embedding BLOB,
@@ -80,8 +81,6 @@ class Catalog:
         """)
 
         self.catalog_connection.commit()
-
-
 
     def insert_photo(self, photo: Photo):
         if self.cursor is None or self.catalog_connection is None:
@@ -114,31 +113,43 @@ class Catalog:
             return True
 
         return False
-    def show_row_table_all(self) -> list[Any] :
+
+    def show_row_table_all(self) -> list[Any]:
         if self.cursor is None or self.catalog_connection is None:
-                    raise RuntimeError("[catalog.py]cursor/catalog_connect is not connected")
+            raise RuntimeError("[catalog.py]cursor/catalog_connect is not connected")
         self.cursor.execute("SELECT * FROM photos")
         table = self.cursor.fetchall()
         for row in table:
-             for item in row:
-                  print(item)
+            for item in row:
+                print(item)
         return table
 
-    def insert_bounding_box(self,image_hash: str, boxes: list[BoundingBox]):
+    def insert_bounding_box(self, image_hash: str, boxes: list[BoundingBox]):
         if self.cursor is None or self.catalog_connection is None:
             raise RuntimeError("[catalog.py]cursor/catalog_connection is none")
 
         self.cursor.executemany(
-        """INSERT INTO bounding_boxes (image_hash, model_version, confidence, name, x1, y1, x2, y2)
+            """INSERT INTO bounding_boxes (image_hash, model_version, confidence, name, x1, y1, x2, y2)
            VALUES (?,?,?,?,?,?,?,?)""",
-        [(image_hash, box.model_version, box.confidence, box.name, box.x1, box.y1, box.x2, box.y2)
-         for box in boxes]
-    )
-        
+            [
+                (
+                    image_hash,
+                    box.model_version,
+                    box.confidence,
+                    box.name,
+                    box.x1,
+                    box.y1,
+                    box.x2,
+                    box.y2,
+                )
+                for box in boxes
+            ],
+        )
 
     def close(self):
         if self.catalog_connection:
             self.catalog_connection.close()
+
 
 catalog = Catalog()
 catalog.show_row_table_all()
