@@ -66,7 +66,7 @@ class Catalog:
             x1 INTEGER,
             y1 INTEGER,
             x2 INTEGER,
-            y2 INTEGER
+            y2 INTEGER,
             FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
             )
             """)
@@ -77,7 +77,7 @@ class Catalog:
         embedding BLOB,
         group_id TEXT,
         eye_state TEXT,
-        FOREIGN KEY (image_hash) REFERENCE photos(image_hash))
+        FOREIGN KEY (image_hash) REFERENCES photos(image_hash))
         """)
 
         self.catalog_connection.commit()
@@ -145,11 +145,8 @@ class Catalog:
                 for box in boxes
             ],
         )
+        self.catalog_connection.commit()
 
     def close(self):
         if self.catalog_connection:
             self.catalog_connection.close()
-
-
-catalog = Catalog()
-catalog.show_row_table_all()
