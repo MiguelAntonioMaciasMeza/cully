@@ -30,8 +30,6 @@ class Objects:
         boxes = list()
 
         for result in self.prediction:
-            if result.boxes is None or result.boxes.cls is None:
-                return None
 
             for cls_id, confidence, (x1, y1, x2, y2) in zip(
                 result.boxes.cls.tolist(),
@@ -53,9 +51,11 @@ class Objects:
                     )
 
                     boxes.append(box)
+        if len(boxes) == 0:
+            boxes.append(
+                BoundingBox(
+                    0, self.settings.YOLOModel, "No Objects detected", 0, 0, 0, 0
+                )
+            )
 
-        if boxes is None:
-            return None
         return boxes
-
-
