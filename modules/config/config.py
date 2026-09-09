@@ -5,7 +5,8 @@ import json
 default_config = {
     "input_path": str(Path.home() / "cully" / "input"),
     "output_path": str(Path.home() / "cully" / "output"),
-    "catalog_path": user_data_dir("cully")
+    "catalog_path": str(Path(user_data_dir("cully")) / "catalog"),
+    "models_path": str(Path(user_data_dir("cully")) / "models"),
 }
 
 
@@ -13,11 +14,16 @@ class Config:
     config_path: Path
     input_path: str
     output_path: str
+    models_path: str
+    models: dict[str, str]
+    catalog_path: str
 
     def __init__(self):
-        self.config_path = Path(user_config_dir("cully"))
+        self.config_path = Path(user_config_dir("cully") + "/config.json")
         self.input_path = self._load_config("input_path")
         self.output_path = self._load_config("output_path")
+        self.models_path = self._load_config("models_path")
+        self.catalog_path = self._load_config("catalog_path")
         print(self.input_path)
 
     def _load_config(self, config: str):
@@ -27,7 +33,7 @@ class Config:
         Returns:
             The value of the setting if found, otherwise what is set in default.
         """
-        
+
         Path(self.config_path.parent).mkdir(
             parents=True, exist_ok=True
         )  # Ensure the directory exists
