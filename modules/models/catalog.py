@@ -18,7 +18,7 @@ from pathlib import Path
 
 def default_catalog_path() -> str:
     print(user_data_dir("cully") + "/catalog.db")
-    return str(user_data_dir("cully") + "/catalog.db")
+    return str(user_data_dir("cully") + "/catalog/catalog.db")
 
 
 @dataclass
@@ -127,7 +127,6 @@ class Catalog:
     def insert_bounding_box(self, image_hash: str, boxes: list[BoundingBox]):
         if self.cursor is None or self.catalog_connection is None:
             raise RuntimeError("[catalog.py]cursor/catalog_connection is none")
-
         self.cursor.executemany(
             """INSERT INTO bounding_boxes (image_hash, model_version, confidence, name, x1, y1, x2, y2)
            VALUES (?,?,?,?,?,?,?,?)""",
@@ -146,6 +145,19 @@ class Catalog:
             ],
         )
         self.catalog_connection.commit()
+
+    def get_boxes_by_name(self, name:str) -> Optional[list[sqlite3.Row]]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connect is None")
+
+        results = self.cursor.execute("SELECT * FROM bounding_boxes WHERE name = ?",(name,)).fetchall()
+        return results
+
+    def get_photo_path_by_hash(self, img_hash:str) -> Optional[str]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connect is None")
+        row = self.cursor.execute("SELECT image_path FROM photos WHERE image_hash = ?", (img_hash,)).fetchone()
+        return row["image_path"]
 
     def close(self):
         if self.catalog_connection:
