@@ -14,7 +14,7 @@ Date: 2026-09-02
 from dataclasses import dataclass, field
 from typing import Any
 from pathlib import Path
-from ingest.exifReader import ExifReader
+from ingest.exif_reader import ExifReader
 from models.boundingbox import BoundingBox
 from collections import defaultdict
 from hashlib import sha256
@@ -27,7 +27,6 @@ class Photo:
     image_hash: str = field(default_factory=str)
     scores: dict = field(default_factory=dict)
     cached: bool = False
-    objects: defaultdict[str, BoundingBox] = field(default_factory=defaultdict)
 
     def __post_init__(self):
         if not self.path_to_photo:
