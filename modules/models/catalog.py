@@ -17,7 +17,6 @@ from pathlib import Path
 
 
 def default_catalog_path() -> str:
-    print(user_data_dir("cully") + "/catalog.db")
     return str(user_data_dir("cully") + "/catalog/catalog.db")
 
 
@@ -114,15 +113,14 @@ class Catalog:
 
         return False
 
-    def show_row_table_all(self) -> list[Any]:
+    def grab_all_rows_from_table(self, table:str)-> list[Any] | None:
         if self.cursor is None or self.catalog_connection is None:
-            raise RuntimeError("[catalog.py]cursor/catalog_connect is not connected")
-        self.cursor.execute("SELECT * FROM photos")
-        table = self.cursor.fetchall()
-        for row in table:
-            for item in row:
-                print(item)
-        return table
+            raise RuntimeError("[catalog.py]cursor/catalog_connection is not connected")
+
+        self.cursor.execute("SELECT * FROM ?", (table,))
+        results = self.cursor.fetchall()
+        
+        return results 
 
     def insert_bounding_box(self, image_hash: str, boxes: list[BoundingBox]):
         if self.cursor is None or self.catalog_connection is None:
@@ -148,16 +146,31 @@ class Catalog:
 
     def get_boxes_by_name(self, name:str) -> Optional[list[sqlite3.Row]]:
         if self.cursor is None or self.catalog_connection is None:
-            raise ValueError("[catalog.py]cursor/catalog_connect is None")
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
 
         results = self.cursor.execute("SELECT * FROM bounding_boxes WHERE name = ?",(name,)).fetchall()
         return results
 
     def get_photo_path_by_hash(self, img_hash:str) -> Optional[str]:
         if self.cursor is None or self.catalog_connection is None:
-            raise ValueError("[catalog.py]cursor/catalog_connect is None")
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
         row = self.cursor.execute("SELECT image_path FROM photos WHERE image_hash = ?", (img_hash,)).fetchone()
         return row["image_path"]
+
+    def _drop_table(self, table: str):
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[cataloy.py] cursor/catalog_connection")
+        self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", (table,) )
+        result = self.cursor.fetchone() is not None
+        if result is None:
+            print(f"Table:{table}, does not exists")
+            return
+        try:
+            self.cursor.execute(f"DROP TABLE ?", (table,))
+            self.catalog_connection.commit()
+            print(f"table {table} has been dropped")
+        except sqlite3.Error as msg:
+            print(f"[catalog.py/_drop_table]{msg}")
 
     def close(self):
         if self.catalog_connection:
