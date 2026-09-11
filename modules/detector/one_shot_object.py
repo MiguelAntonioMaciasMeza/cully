@@ -25,7 +25,7 @@ class Objects:
         self.model = YOLO(self.settings.YOLOModel)
         self.model.cuda()
 
-    def detect_objects(self, img: np.ndarray) -> list[BoundingBox] | None:
+    def detect_objects(self, img: np.ndarray,inverse_scale: float) -> list[BoundingBox] | None:
         self.prediction = cast(list, self.model.predict(img, verbose=False))
         boxes = list()
 
@@ -44,10 +44,10 @@ class Objects:
                         confidence=round(confidence, 2),
                         model_version=self.settings.YOLOModel,
                         name=cls_name,
-                        x1=int(x1),
-                        y1=int(y1),
-                        x2=int(x2),
-                        y2=int(y2),
+                        x1=int(x1* inverse_scale),
+                        y1=int(y1* inverse_scale),
+                        x2=int(x2* inverse_scale),
+                        y2=int(y2* inverse_scale),
                     )
 
                     boxes.append(box)
