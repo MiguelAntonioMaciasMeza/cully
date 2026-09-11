@@ -6,6 +6,10 @@ from datetime import datetime
 import logging
 from enum import Enum
 import pprint
+from dataclasses import dataclass,field
+from typing import cast
+import rawpy
+import cv2
 
 # logging.getLogger("exif").setLevel(logging.ERROR)
 
@@ -23,8 +27,8 @@ class uot(Enum):
 
 class ExifReader:
     path: Path
-    image_exif: dict[str, Any]
-    date_time: datetime | None
+    image_exif: dict[str, str | int | None ] = field(default_factory=dict)
+    date_time: datetime | None 
 
     def __init__(self, path: Path):
         self.path = path
@@ -38,6 +42,7 @@ class ExifReader:
             if suffix in (".jpg", ".jpeg"):
                 self._read_jpg_exif(path)
             elif suffix == ".cr2":
+                print("Reading raw exif")
                 self._read_raw_exif(path)
             self._set_date_time()
         except Exception as e:
@@ -60,28 +65,25 @@ class ExifReader:
         except (AttributeError, KeyError):
             self.image_exif["subsecond_original"] = None
 
-        try:
-            self.image_exif["PixelXDimension"] = img.image_width
-        except (AttributeError, KeyError):
-            self.image_exif["PixelXDimension"] = None
-
-        try:
-            self.image_exif["PixelYDimension"] = img.image_height
-        except (AttributeError, KeyError):
-            self.image_exif["PixelYDimension"] = None
+        img = cv2.imread(str(path))
+        if img is not None:
+            self.image_exif["x_resolution"] = img.shape[0]
+            self.image_exif["y_resolution"] = img.shape[1]
 
     def _read_raw_exif(self, path: Path):
         with open(path, "rb") as f:
             tags = exifread.process_file(f, details=False)
+            # normalize to the same key names _set_date_time expects
+            self.image_exif = {}
 
-        # normalize to the same key names _set_date_time expects
-        self.image_exif = {
-            "datetime_original": str(tags.get("EXIF DateTimeOriginal", "")) or None,
-            "subsecond_original": str(tags.get("EXIF SubSecTimeOriginal", "")) or None,
-            "x_resolution": int(tags.get("EXIF PixelXDimension", "")) or None,
-            "y_resolution": int(tags.get("EXIF PixelYDimension", "")) or None,
-        }
-
+            self.image_exif["datetime_original"] = tags.get("EXIF DateTimeOriginal")
+            self.image_exif["subsecond_original"] = str(tags.get("EXIF SubSecTimeOriginal"))
+            raw_img = rawpy.imread(str(path))
+            if raw_img is not None:
+                img_sizes = raw_img.sizes
+                self.image_exif["x_resolution"] = img_sizes.crop_width
+                self.image_exif["y_resolution"] = img_sizes.crop_height
+            
     def _set_date_time(self):
         try:
             raw = self.image_exif.get("datetime_original")
