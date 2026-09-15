@@ -49,7 +49,8 @@ class FaceDetector:
         for box in bounding_box:
             #Crop image around person box
             cropped = img[box.y1:box.y2, box.x1:box.x2]
-            print(cropped)
+            if DEBUG:
+                print(cropped)
             #Convert image for mediapipe as it requries RGB
             cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
             mp_image = mediapipe.Image(image_format=mediapipe.ImageFormat.SRGB, data=cropped_rgb)
