@@ -72,22 +72,22 @@ class FaceDetector:
                     cv2.destroyAllWindows()
 
         if len(boxes) < 1:
-            face_results.append(BoundingBox(0, "Media Pipe Face Detector", "No Faces Found", 0,0,0,0))
+            face_results.append(BoundingBox(0, "Media Pipe Face Detector", "No Faces Found", 0,0,0,0,bounding_box[0].id))
             return face_results
              
         return face_results
 
-    def _parse_results(self, results: DetectionResult, parent_id: int) -> list[BoundingBox]:
+    def _parse_results(self, detections: DetectionResult, parent_id: int) -> list[BoundingBox]:
         boxes: list[BoundingBox] = []
-        detections = results.detections
-        for result in detections:
-            x1, y1, width, height = (
+        for result in detections.detections: 
+            x1, y1, width, height, confidence = (
                 result.bounding_box.origin_x,
                 result.bounding_box.origin_y,
                 result.bounding_box.width,
                 result.bounding_box.height,
+                result.categories[0].score * 100
             )
-            boxes.append(BoundingBox(100, "Media Pipe Face Detector", "Face Box", x1, y1, x1 + width, y1 + height, parent_id))
+            boxes.append(BoundingBox(round(confidence,2), "Media Pipe Face Detector", "Face Box", x1, y1, x1 + width, y1 + height, parent_id))
         return boxes
 
     
