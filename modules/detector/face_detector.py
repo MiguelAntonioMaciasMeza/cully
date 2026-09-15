@@ -49,20 +49,20 @@ class FaceDetector:
         for box in bounding_box:
             #Crop image around person box
             cropped = img[box.y1:box.y2, box.x1:box.x2]
-
+            print(cropped)
             #Convert image for mediapipe as it requries RGB
             cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
             mp_image = mediapipe.Image(image_format=mediapipe.ImageFormat.SRGB, data=cropped_rgb)
 
-            boxes = self._parse_results(self.detector.detect(mp_image),box.id)  # type: ignore[reportAttributeAccessIssue] — mediapipe stub gap, verified via dir()
+            boxes = self._parse_results(self.detector.detect(mp_image),box, None)  # type: ignore[reportAttributeAccessIssue] — mediapipe stub gap, verified via dir()
             for face in boxes:
                 face_results.append(face)
             if DEBUG:
                 for point in boxes:
-                    face_x1 = box.x1 + point.x1
-                    face_y1 = box.y1 + point.y1
-                    face_x2 = box.x1 + point.x2
-                    face_y2 = box.y1 + point.y2
+                    face_x1 = point.x1
+                    face_y1 = point.y1
+                    face_x2 = point.x2
+                    face_y2 = point.y2
                     cv2.rectangle(img, (face_x1, face_y1), (face_x2, face_y2), (100, 100, 100), 5)
                     cv2.namedWindow("Face Detector", cv2.WINDOW_NORMAL)
                     cv2.resizeWindow("Face Detector", 1920,1080)
@@ -77,17 +77,17 @@ class FaceDetector:
              
         return face_results
 
-    def _parse_results(self, detections: DetectionResult, parent_id: int) -> list[BoundingBox]:
+    def _parse_results(self, detections: DetectionResult, origin_box: BoundingBox) -> list[BoundingBox]:
         boxes: list[BoundingBox] = []
         for result in detections.detections: 
             x1, y1, width, height, confidence = (
-                result.bounding_box.origin_x,
-                result.bounding_box.origin_y,
-                result.bounding_box.width,
-                result.bounding_box.height,
+                result.bounding_box.origin_x + origin_box.x1 ,
+                result.bounding_box.origin_y + origin_box.y1,
+                result.bounding_box.width ,
+                result.bounding_box.height ,
                 result.categories[0].score * 100
             )
-            boxes.append(BoundingBox(round(confidence,2), "Media Pipe Face Detector", "Face Box", x1, y1, x1 + width, y1 + height, parent_id))
+            boxes.append(BoundingBox(round(confidence,2), "Media Pipe Face Detector", "Face Box", x1, y1, x1 + width, y1 + height, origin_box.id))
         return boxes
 
     
