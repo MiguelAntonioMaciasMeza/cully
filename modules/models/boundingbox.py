@@ -9,6 +9,7 @@ Date: 2026-09-02
 """
 
 from dataclasses import dataclass, field
+import sqlite3
 
 @dataclass
 class BoundingBox():
@@ -19,9 +20,22 @@ class BoundingBox():
     y1: int = field(default=0)
     x2: int = field(default=0)
     y2: int = field(default=0)
+    id: int = field(default= -1)
 
     def set_points(self, points: list):
         self.x1 = points[0]
         self.y1 = points[1]
         self.x2 = points[2]
         self.y2 = points[3]
+
+    @classmethod
+    def from_sql_row(cls, row: sqlite3.Row):
+        confidence = row["confidence"]
+        model_version = row["model_version"]
+        name = row["name"]
+        x1 = row["x1"]
+        y1 = row["y1"]
+        x2 = row["x2"]
+        y2 = row["y2"]
+        id = row["id"]
+        return cls(confidence,model_version,name, x1,y1,x2,y2, id)
