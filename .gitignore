@@ -2,4 +2,10 @@
 *.pt
 venv/
 env/
-.venv   
+.venv
+venv-main/
+venv-faces/
+*pyc
+/TestImages
+/Output
+*test.py
