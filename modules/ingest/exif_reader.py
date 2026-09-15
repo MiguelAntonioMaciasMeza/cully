@@ -32,6 +32,7 @@ class ExifReader:
 
     def __init__(self, path: Path):
         self.path = path
+        self.image_exif = {}
 
         suffix = path.suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
@@ -51,20 +52,10 @@ class ExifReader:
 
     def _read_jpg_exif(self, path: Path):
         with open(path, "rb") as f:
-            img = ExifLib(f)
-        self.image_exif = {}
-        
-
-        try:
-            self.image_exif["datetime_original"] = img.datetime_original
-        except (AttributeError, KeyError):
-            self.image_exif["datetime_original"] = None
-
-        try:
-            self.image_exif["subsecond_original"] = img.subsec_time_original
-        except (AttributeError, KeyError):
-            self.image_exif["subsecond_original"] = None
-
+            img = ExifLib(f)  
+            self._get_exif_data(img,"datetime_original")
+            self._get_exif_data(img,"subsec_time_original")
+      
         img = cv2.imread(str(path))
         if img is not None:
             self.image_exif["x_resolution"] = img.shape[0]
@@ -115,6 +106,12 @@ class ExifReader:
             case 5:
                 return self.date_time.second
         return -1
+
+    def _get_exif_data(self, exif: ExifLib, tag: str):
+        try:
+            self.image_exif[tag] = exif.get(tag, -1)
+        except (AttributeError, ValueError):
+            self.image_exif[tag] = None
 
     def get_image_exif(self) -> dict[str, Any] | None:
         return self.image_exif
