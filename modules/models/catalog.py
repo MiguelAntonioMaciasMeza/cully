@@ -15,7 +15,7 @@ from models.boundingbox import BoundingBox
 from typing import Optional, Any
 from pathlib import Path
 
-
+DEBUG = False
 def default_catalog_path() -> str:
     return str(user_data_dir("cully") + "/catalog/catalog.db")
 
@@ -29,8 +29,8 @@ class Catalog:
     cursor: Optional[sqlite3.Cursor] = field(default=None, repr=False, init=False)
 
     def __post_init__(self):
-
-        Path(self.catalog_path).parent.mkdir(parents=True, exist_ok=True)
+        if DEBUG:
+            Path(self.catalog_path).parent.mkdir(parents=True, exist_ok=True)
         self.catalog_connection = sqlite3.connect(self.catalog_path)
         self.catalog_connection.row_factory = sqlite3.Row
         self.cursor = self.catalog_connection.cursor()
@@ -51,6 +51,8 @@ class Catalog:
                 final_score REAL,
                 capture_time TEXT,
                 camera_model TEXT,
+                x_resolution INTEGER,
+                y_resolution INTEGER,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
@@ -78,6 +80,16 @@ class Catalog:
         eye_state TEXT,
         FOREIGN KEY (image_hash) REFERENCES photos(image_hash))
         """)
+        self.cursor.execute("""
+                CREATE TABLE IF NOT EXISTS face_boxes(
+                id INTEGER PRIMARY KEY,
+                parent_box_id INTEGER,
+                image_hash INTEGER,
+                confidence REAL,
+                x1 INTEGER, y1 INTEGER, x2 INTEGER, y2 INTEGER,
+                FOREIGN KEY (parent_box_id) REFERENCES bounding_box(id)
+                FOREIGN KEY (image_hash) REFERENCES photos(image_hash))
+                """)
 
         self.catalog_connection.commit()
 
@@ -88,15 +100,19 @@ class Catalog:
             )
             return
         if self._check_if_photo_exists(photo.image_hash) is True:
-            print("[catalog.py]Photo could not be inserted, already exists in catalog")
+            if DEBUG:
+                print("[catalog.py]Photo could not be inserted, already exists in catalog")
             return
 
-        self.cursor.execute(
-            "INSERT INTO photos (image_path, image_hash) VALUES (?,?)",
-            (str(photo.path_to_photo), photo.image_hash),
+        if photo.exif_data is not None:
+            if len(photo.exif_data) > 0:
+                self.cursor.execute(
+            "INSERT INTO photos (image_path, image_hash,capture_time, x_resolution, y_resolution) VALUES (?,?,?,?,?)",
+            (str(photo.path_to_photo), photo.image_hash, str(photo.exif_data["datetime_original"]), photo.exif_data["x_resolution"], photo.exif_data["y_resolution"]),
         )
 
-        self.catalog_connection.commit()
+            self.catalog_connection.commit()
+        
 
     def _check_if_photo_exists(self, image_hash: str) -> bool:
         if self.cursor is None or self.catalog_connection is None:
@@ -108,7 +124,8 @@ class Catalog:
 
         row = self.cursor.fetchone()
         if row is not None:
-            print(f"[catalog.py]Photo[{row['image_path']}] exists at id[{row['id']}]")
+            if DEBUG:
+                print(f"[catalog.py]Photo[{row['image_path']}] exists at id[{row['id']}]")
             return True
 
         return False
@@ -117,7 +134,7 @@ class Catalog:
         if self.cursor is None or self.catalog_connection is None:
             raise RuntimeError("[catalog.py]cursor/catalog_connection is not connected")
 
-        self.cursor.execute("SELECT * FROM ?", (table,))
+        self.cursor.execute(f"SELECT * FROM {table}")
         results = self.cursor.fetchall()
         
         return results 
@@ -155,22 +172,85 @@ class Catalog:
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
         row = self.cursor.execute("SELECT image_path FROM photos WHERE image_hash = ?", (img_hash,)).fetchone()
+        if row is None:
+            if DEBUG:
+                print("Photo table does not exist")
+            return None
         return row["image_path"]
 
     def _drop_table(self, table: str):
         if self.cursor is None or self.catalog_connection is None:
-            raise ValueError("[cataloy.py] cursor/catalog_connection")
+            raise ValueError("[cataloy.py] cursor/catalog_connection is None")
         self.cursor.execute(f"SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?", (table,) )
         result = self.cursor.fetchone() is not None
         if result is None:
-            print(f"Table:{table}, does not exists")
+            if DEBUG:
+                print(f"Table:{table}, does not exists")
             return
         try:
             self.cursor.execute(f"DROP TABLE ?", (table,))
             self.catalog_connection.commit()
-            print(f"table {table} has been dropped")
+            if DEBUG:
+                print(f"table {table} has been dropped")
         except sqlite3.Error as msg:
-            print(f"[catalog.py/_drop_table]{msg}")
+            if DEBUG:
+                print(f"[catalog.py/_drop_table]{msg}")
+
+    def insert_face_box(self, img_hash:str,box: BoundingBox):
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        self.cursor.execute("INSERT INTO face_boxes (confidence,image_hash,parent_box_id, x1,y1,x2,y2) VALUES (?,?,?,?,?,?,?)",(box.confidence,img_hash, box.id,box.x1,box.y1,box.x2,box.y2))
+        self.catalog_connection.commit()
+
+
+    def get_all_hashes(self) -> set[str]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+            
+
+
+        results = self.cursor.execute("SELECT image_hash FROM photos").fetchall()
+        if len(results) == 0:
+            if DEBUG:
+                print("[catalog.py]No hashes found in photos")
+                return set()
+        hashes = set()
+        for result in results:
+            hashes.add(result["image_hash"])
+
+        return hashes
+
+    def get_object_hashes(self) -> set[str]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+
+        results = self.cursor.execute("SELECT image_hash FROM bounding_boxes").fetchall()
+        if len(results) == 0:
+            if DEBUG:
+                print("[catalog.py]No hashes found in bounding_boxes")
+                return set()
+        hashes = set()
+        for result in results:
+            if result["image_hash"] not in hashes:
+                hashes.add(result["image_hash"])
+        return hashes
+
+    def get_face_box_hashes(self) -> set[str]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+
+        results = self.cursor.execute("SELECT image_hash FROM face_boxes").fetchall()
+        if len(results) == 0:
+            if DEBUG:
+                print("[catalog.py]No hashes found in face_boxes")
+                return set()
+        hashes = set()
+        for result in results:
+            if result["image_hash"] not in hashes:
+                hashes.add(result["image_hash"])
+        return hashes
+
+    
 
     def close(self):
         if self.catalog_connection:
