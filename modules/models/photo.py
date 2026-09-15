@@ -15,7 +15,6 @@ from dataclasses import dataclass, field
 from typing import Any
 from pathlib import Path
 from ingest.exif_reader import ExifReader
-from models.boundingbox import BoundingBox
 from collections import defaultdict
 from hashlib import sha256
 
