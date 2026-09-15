@@ -1,6 +1,7 @@
 """
 File: Cully/modules/models/cache.py
-Description: 
+Description: Contains the Cache class which will have a set of image properties such as hashes to later
+determine if a file has already been processed or not
 Author: Miguel Macias
 Date: 2026-09-14
 """
