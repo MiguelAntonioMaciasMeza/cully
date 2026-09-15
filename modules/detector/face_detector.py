@@ -31,7 +31,6 @@ VisionRunningMode = mediapipe.tasks.vision.RunningMode
 @dataclass
 class FaceDetector:
     config: Config = field(default_factory=Config)
-    faces: list[BoundingBox] = field(default_factory=list)
     detector: FaceDetector = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -40,7 +39,7 @@ class FaceDetector:
             running_mode=VisionRunningMode.IMAGE
         )
         self.detector = MPFaceDetector.create_from_options(options)
-
+        
     def detect_face(self, img_path: str, bounding_box: list[BoundingBox]) -> list[BoundingBox]:
         img = cv2.imread(img_path)
         if img is None:
@@ -55,7 +54,7 @@ class FaceDetector:
             cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
             mp_image = mediapipe.Image(image_format=mediapipe.ImageFormat.SRGB, data=cropped_rgb)
 
-            boxes = self._parse_results(self.detector.detect(mp_image))  # type: ignore[reportAttributeAccessIssue] — mediapipe stub gap, verified via dir()
+            boxes = self._parse_results(self.detector.detect(mp_image),box.id)  # type: ignore[reportAttributeAccessIssue] — mediapipe stub gap, verified via dir()
             for face in boxes:
                 face_results.append(face)
             if DEBUG:
@@ -78,7 +77,7 @@ class FaceDetector:
              
         return face_results
 
-    def _parse_results(self, results: DetectionResult) -> list[BoundingBox]:
+    def _parse_results(self, results: DetectionResult, parent_id: int) -> list[BoundingBox]:
         boxes: list[BoundingBox] = []
         detections = results.detections
         for result in detections:
@@ -88,5 +87,7 @@ class FaceDetector:
                 result.bounding_box.width,
                 result.bounding_box.height,
             )
-            boxes.append(BoundingBox(100, "Media Pipe Face Detector", "Face Box", x1, y1, x1 + width, y1 + height))
+            boxes.append(BoundingBox(100, "Media Pipe Face Detector", "Face Box", x1, y1, x1 + width, y1 + height, parent_id))
         return boxes
+
+    
