@@ -10,7 +10,7 @@ from dataclasses import dataclass,field
 from typing import cast
 import rawpy
 import cv2
-
+DEBUG = False
 # logging.getLogger("exif").setLevel(logging.ERROR)
 
 SUPPORTED_SUFFIXES = {".jpg", ".jpeg", ".cr2"}
@@ -32,30 +32,35 @@ class ExifReader:
 
     def __init__(self, path: Path):
         self.path = path
-        self.image_exif = {}
+        self.image_exif = {"datetime_original": "00:00:00 00:00:00.00"}
 
         suffix = path.suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
-            print(f"Unsupported file type: {path.name}")
+            if DEBUG:
+                print(f"[exif_reader.py]Unsupported file type: {path.name}")
             return
 
         try:
             if suffix in (".jpg", ".jpeg"):
                 self._read_jpg_exif(path)
             elif suffix == ".cr2":
-                print("Reading raw exif")
+                if DEBUG:
+                    print("[exif_reader.py]Reading raw exif")
                 self._read_raw_exif(path)
             self._set_date_time()
         except Exception as e:
-            # print(f"Missing file exif data from {path.name}: {e}")
+            if DEBUG:
+                print(f"[exifreader.py]Missing file exif data from {path.name}: {e}")
             pass
 
     def _read_jpg_exif(self, path: Path):
         with open(path, "rb") as f:
             img = ExifLib(f)  
-            self._get_exif_data(img,"datetime_original")
-            self._get_exif_data(img,"subsec_time_original")
-      
+            if img.has_exif:
+                self._get_exif_data(img,"datetime_original")
+                self._get_exif_data(img,"subsec_time_original")
+        if DEBUG:
+            print(f"[exif_reader.py]Reading: {path}")
         img = cv2.imread(str(path))
         if img is not None:
             self.image_exif["x_resolution"] = img.shape[0]
@@ -77,17 +82,20 @@ class ExifReader:
             
     def _set_date_time(self):
         try:
+            
             raw = self.image_exif.get("datetime_original")
-            date_string = str(raw)
-            raw = self.image_exif["subsecond_original"]
-            sub_second = str(raw) if raw is not None else "0"
-            date_string += "." + sub_second
-            date_time = datetime.strptime(date_string, "%Y:%m:%d %H:%M:%S.%f")
-            self.image_exif["datetime_original"] = date_time
+            if raw is not None:
+                date_string = str(raw)
+                raw = self.image_exif["subsecond_original"]
+                sub_second = str(raw) if raw is not None else "0"
+                date_string += "." + sub_second
+                date_time = datetime.strptime(date_string, "%Y:%m:%d %H:%M:%S.%f")
+                self.image_exif["datetime_original"] = date_time
 
         except (AttributeError, ValueError):
             self.date_time = None
-            print("File is missing dateTime_original tag")
+            if DEBUG:
+                print("File is missing dateTime_original tag")
 
     def get_date_time(self, uot: uot) -> int:
         if self.date_time is None:
