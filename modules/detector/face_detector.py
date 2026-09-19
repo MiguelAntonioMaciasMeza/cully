@@ -20,12 +20,14 @@ from mediapipe.tasks.python.components.containers.detections import Detection, D
 import mediapipe
 from config.config import Config
 from models.boundingbox import BoundingBox
+from platformdirs import user_data_dir
 import cv2
 DEBUG = False
 BaseOptions = mediapipe.tasks.BaseOptions
 MPFaceDetector = mediapipe.tasks.vision.FaceDetector
 FaceDetectorOptions = mediapipe.tasks.vision.FaceDetectorOptions
 VisionRunningMode = mediapipe.tasks.vision.RunningMode
+MODEL_DIR = str(user_data_dir("cully") + "/models/mediapipe/face_detection/blaze_face_full_range.tflite")
 
 
 @dataclass
@@ -35,7 +37,7 @@ class FaceDetector:
 
     def __post_init__(self):
         options = FaceDetectorOptions(
-            base_options=BaseOptions(model_asset_path=self.config.models_path + "/mediapipe/blaze_face_full_range.tflite"),
+            base_options=BaseOptions(model_asset_path=MODEL_DIR),
             running_mode=VisionRunningMode.IMAGE
         )
         self.detector = MPFaceDetector.create_from_options(options)
@@ -55,7 +57,7 @@ class FaceDetector:
             cropped_rgb = cv2.cvtColor(cropped, cv2.COLOR_BGR2RGB)
             mp_image = mediapipe.Image(image_format=mediapipe.ImageFormat.SRGB, data=cropped_rgb)
 
-            boxes = self._parse_results(self.detector.detect(mp_image),box, None)  # type: ignore[reportAttributeAccessIssue] — mediapipe stub gap, verified via dir()
+            boxes = self._parse_results(self.detector.detect(mp_image),box)  # type: ignore[reportAttributeAccessIssue] — mediapipe stub gap, verified via dir()
             for face in boxes:
                 face_results.append(face)
             if DEBUG:
@@ -72,10 +74,10 @@ class FaceDetector:
                     cv2.waitKey()
                     cv2.destroyAllWindows()
 
-        if len(boxes) < 1:
-            face_results.append(BoundingBox(0, "Media Pipe Face Detector", "No Faces Found", 0,0,0,0,bounding_box[0].id))
-            return face_results
-             
+        #If no faces are detected, box the whole image and see if landmarker can detect anything
+        if not face_results and bounding_box:
+            face_results.append(BoundingBox(0, "Media Pipe Face Detector", "No Faces Found", 0,0,img.shape[1],img.shape[0],bounding_box[0].id))
+
         return face_results
 
     def _parse_results(self, detections: DetectionResult, origin_box: BoundingBox) -> list[BoundingBox]:
