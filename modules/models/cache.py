@@ -28,6 +28,10 @@ class Cache():
     @classmethod
     def hashes_from_face_boxes(cls,catalog:Catalog):
         return cls(processed=catalog.get_face_box_hashes())
+
+    @classmethod
+    def hashes_from_face_landmarks(cls,catalog: Catalog):
+        return cls(processed=catalog.hashes_from_face_landmarks())
     
 
     

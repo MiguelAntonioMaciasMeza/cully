@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from platformdirs import user_data_dir
 from models.photo import Photo
 from models.boundingbox import BoundingBox
+from models.face_landmarks import FaceLandmarks
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
@@ -83,6 +84,17 @@ class Catalog:
                 FOREIGN KEY (parent_box_id) REFERENCES bounding_boxes(id)
                 )
                 """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS face_landmarks(
+            face_box_id INTEGER PRIMARY KEY,
+            image_hash TEXT,
+            eye_blink_left REAL,
+            eye_blink_right REAL,
+            landmark_scores_json TEXT,
+            FOREIGN KEY (face_box_id) REFERENCES face_boxes(id),
+            FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
+            )
+        """)
 
         self.catalog_connection.commit()
 
@@ -272,6 +284,41 @@ class Catalog:
                 boxes[self._get_hash_from_bounding_box_id(box["parent_box_id"])].append(BoundingBox.from_sql_row(box))
 
         return boxes
+
+    def insert_face_landmarks(self, landmarks: list[FaceLandmarks]):
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        if not landmarks:
+            return
+
+        self.cursor.executemany(
+            """
+            INSERT INTO face_landmarks(face_box_id, image_hash, eye_blink_left, eye_blink_right, landmark_scores_json) 
+            VALUES (?,?,?,?,?)
+            ON CONFLICT (face_box_id) DO NOTHING
+            """,
+            [
+                (landmark.face_box_id, landmark.image_hash, landmark.eye_blink_left,
+                landmark.eye_blink_right, json.dumps(landmark.landmark_scores))
+                for landmark in landmarks
+            ],
+        )
+        self.catalog_connection.commit()
+    def get_face_landmarks(self) -> list[FaceLandmarks]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        results = self.cursor.execute("SELECT * FROM face_landmarks").fetchall()
+        face_landmarks: list[FaceLandmarks] = list()
+
+        for row in results:
+            face_landmarks.append(FaceLandmarks.from_sql_row(row))
+        return face_landmarks          
+
+    def hashes_from_face_landmarks(self) -> set[str]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        results = self.cursor.execute("SELECT DISTINCT image_hash FROM face_landmarks").fetchall()
+        return {row["image_hash"] for row in results}
 
     def get_image_path_from_box_id(self,parent_id:int):
         if self.cursor is None or self.catalog_connection is None:
