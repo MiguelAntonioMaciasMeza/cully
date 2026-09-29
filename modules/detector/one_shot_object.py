@@ -18,7 +18,7 @@ class Objects:
     path: Path = field(default_factory=Path)
     output_dir: str = field(default_factory=str)
     settings: Settings = field(default_factory=Settings)
-    model: YOLO = field(default_factory=YOLO)
+    model: YOLO = field(default_factory=YOLO, init=False,repr=False)
 
     def __post_init__(self):
         self.output_dir = self.path.stem + ".jpg"
@@ -28,7 +28,6 @@ class Objects:
     def detect_objects(self, img: np.ndarray,inverse_scale: float) -> list[BoundingBox] | None:
         self.prediction = cast(list, self.model.predict(img, verbose=False))
         boxes = list()
-
         for result in self.prediction:
 
             for cls_id, confidence, (x1, y1, x2, y2) in zip(
