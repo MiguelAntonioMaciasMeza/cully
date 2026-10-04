@@ -5,6 +5,10 @@ Author: Miguel Macias
 Date: 2026-09-09
 """
 from dataclasses import field,dataclass
+import numpy as np
+from scipy.cluster.hierarchy import fcluster, linkage
+from scipy.spatial.distance import pdist
+from deepface.modules.verification import find_threshold
 from models.catalog import Catalog
 from models.boundingbox import BoundingBox
 from collections import defaultdict
@@ -48,10 +52,38 @@ class ImageGrouper:
 
     def group_by_exif_range(self, window: Any):
         pass
+    def group_boxes_by_hash(self,table:str) -> defaultdict[str,BoundingBox] | None:
+        print("grouping boxes by hash")
+        results = self.catalog.get_boxes_by_name(table)
+        if results is None:
+            return
+
+        for result in results:
+            print(result)
 
 @dataclass
 class FaceGrouper:
-    face_boxes: list[BoundingBox] = field(default_factory= list)
+    catalog: Catalog
+    model_name: str = "Facenet512"
+    metric: str = "cosine"
 
-    def group_face_boxes(self, catalog: Catalog):
-        pass
+    def group_faces(self) -> dict[int, int]:
+        """Clusters the stored embeddings for model_name into people.
+
+        Average-linkage agglomerative clustering, cut at the model's recognition threshold so
+        two groups only merge when their average distance is still a match. Returns
+        face_box_id -> group id (1-based, ordered by first appearance in the catalog).
+        """
+        rows = self.catalog.get_face_embeddings(self.model_name)
+        if not rows:
+            return {}
+        if len(rows) == 1:
+            return {rows[0].face_box_id: 1}
+
+        vectors = np.array([row.embedding for row in rows])
+        distances = pdist(vectors, metric=self.metric)
+        tree = linkage(distances, method="average")
+        threshold = find_threshold(self.model_name, self.metric)
+        labels = fcluster(tree, t=threshold, criterion="distance")
+
+        return {row.face_box_id: int(label) for row, label in zip(rows, labels)}
