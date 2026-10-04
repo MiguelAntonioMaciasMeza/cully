@@ -13,6 +13,7 @@ from platformdirs import user_data_dir
 from models.photo import Photo
 from models.boundingbox import BoundingBox
 from models.face_landmarks import FaceLandmarks
+from models.face_embeddings import FaceEmbeddings
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
@@ -91,6 +92,16 @@ class Catalog:
             eye_blink_left REAL,
             eye_blink_right REAL,
             landmark_scores_json TEXT,
+            FOREIGN KEY (face_box_id) REFERENCES face_boxes(id),
+            FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS face_embeddings(
+            face_box_id INTEGER PRIMARY KEY,
+            image_hash TEXT,
+            model_name TEXT,
+            embedding_json TEXT,
             FOREIGN KEY (face_box_id) REFERENCES face_boxes(id),
             FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
             )
@@ -218,6 +229,78 @@ class Catalog:
         self.catalog_connection.commit()
         assert self.cursor.lastrowid is not None
         return self.cursor.lastrowid
+
+    def insert_face_embeddings(self, embeddings: list[FaceEmbeddings]):
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        if not embeddings:
+            return
+        self.cursor.executemany(
+            """
+            INSERT INTO face_embeddings(face_box_id, image_hash, model_name, embedding_json)
+            VALUES (?,?,?,?)
+            ON CONFLICT (face_box_id) DO NOTHING
+            """,
+            [
+                (emb.face_box_id, emb.image_hash, emb.model_name, json.dumps(emb.embedding))
+                for emb in embeddings
+            ],
+        )
+        self.catalog_connection.commit()
+
+    def get_face_embeddings(self, model_name: Optional[str] = None) -> list[FaceEmbeddings]:
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        if model_name is None:
+            results = self.cursor.execute("SELECT * FROM face_embeddings").fetchall()
+        else:
+            results = self.cursor.execute(
+                "SELECT * FROM face_embeddings WHERE model_name = ?", (model_name,)
+            ).fetchall()
+        return [FaceEmbeddings.from_sql_row(row) for row in results]
+
+    def get_photos_without_embeddings(self, model_name: str) -> list[tuple[str, str]]:
+        """Returns (image_hash, image_path) for photos that have no embedding for model_name yet."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        results = self.cursor.execute(
+            """
+            SELECT p.image_hash, p.image_path
+            FROM photos p
+            WHERE NOT EXISTS (
+                SELECT 1 FROM face_embeddings fe
+                WHERE fe.image_hash = p.image_hash AND fe.model_name = ?
+            )
+            """,
+            (model_name,),
+        ).fetchall()
+        return [(row["image_hash"], row["image_path"]) for row in results]
+
+    def get_face_embeddings_with_paths(
+        self, model_name: str
+    ) -> list[tuple[FaceEmbeddings, str, tuple[int, int, int, int]]]:
+        """Returns each stored embedding with its source image path and crop box (x1, y1, x2, y2)."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        results = self.cursor.execute(
+            """
+            SELECT fe.*, p.image_path, fb.x1, fb.y1, fb.x2, fb.y2
+            FROM face_embeddings fe
+            JOIN photos p ON p.image_hash = fe.image_hash
+            JOIN face_boxes fb ON fb.id = fe.face_box_id
+            WHERE fe.model_name = ?
+            """,
+            (model_name,),
+        ).fetchall()
+        return [
+            (
+                FaceEmbeddings.from_sql_row(row),
+                row["image_path"],
+                (row["x1"], row["y1"], row["x2"], row["y2"]),
+            )
+            for row in results
+        ]
+
 
     def get_all_hashes(self) -> set[str]:
         if self.cursor is None or self.catalog_connection is None:
