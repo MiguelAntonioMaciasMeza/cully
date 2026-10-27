@@ -14,6 +14,7 @@ from models.photo import Photo
 from models.boundingbox import BoundingBox
 from models.face_landmarks import FaceLandmarks
 from models.face_embeddings import FaceEmbeddings
+from models.photo_group import CapturedPhoto, Event
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
@@ -108,6 +109,32 @@ class Catalog:
             model_name TEXT,
             embedding_json TEXT,
             FOREIGN KEY (face_box_id) REFERENCES face_boxes(id),
+            FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
+            )
+        """)
+        # Groups are regenerated on every regroup, so their ids aren't stable; user decisions
+        # belong on photos.culled_status, never here
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS photo_groups(
+            id INTEGER PRIMARY KEY,
+            kind TEXT NOT NULL,
+            parent_id INTEGER,
+            camera_model TEXT,
+            start_time TEXT NOT NULL,
+            end_time TEXT NOT NULL,
+            best_image_hash TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            FOREIGN KEY (parent_id) REFERENCES photo_groups(id) ON DELETE CASCADE,
+            FOREIGN KEY (best_image_hash) REFERENCES photos(image_hash)
+            )
+        """)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS photo_group_members(
+            group_id INTEGER NOT NULL,
+            image_hash TEXT NOT NULL UNIQUE,
+            position INTEGER NOT NULL,
+            PRIMARY KEY (group_id, image_hash),
+            FOREIGN KEY (group_id) REFERENCES photo_groups(id) ON DELETE CASCADE,
             FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
             )
         """)
@@ -373,7 +400,8 @@ class Catalog:
                 boxes[self._get_hash_from_bounding_box_id(box["parent_box_id"])].append(BoundingBox.from_sql_row(box))
             else:
                 return None
-        return boxes
+        
+        return  boxes 
 
     def insert_face_landmarks(self, landmarks: list[FaceLandmarks]):
         if self.cursor is None or self.catalog_connection is None:
@@ -438,18 +466,45 @@ class Catalog:
 """,(parent_id,)).fetchone()
         return hash["image_hash"]
 
-    def get_photos_by_capture_time(self) -> list[sqlite3.Row]:
-        """Returns (image_hash, image_path, camera_model, capture_time) for photos with a known capture
-        time, ordered per camera so consecutive rows are consecutive shots."""
+    def get_photos_by_capture_time(self) -> list[CapturedPhoto]:
+        """Returns the photos with a known capture time, ordered per camera so consecutive photos
+        are consecutive shots."""
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
 
-        return self.cursor.execute("""
+        results = self.cursor.execute("""
             SELECT image_hash, image_path, camera_model, capture_time
             FROM photos
             WHERE capture_time IS NOT NULL
             ORDER BY camera_model, capture_time
         """).fetchall()
+        return [CapturedPhoto.from_sql_row(row) for row in results]
+
+    def replace_photo_groups(self, events: list[Event]):
+        """Replaces every photo group with events and their bursts. Runs as one transaction, so a
+        failed regroup leaves the previous groups in place."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+
+        def iso(time: datetime) -> str:  # same format insert_photo stores capture_time in
+            return time.isoformat(timespec="milliseconds")
+
+        insert_group = """INSERT INTO photo_groups (kind, parent_id, camera_model, start_time, end_time)
+            VALUES (?,?,?,?,?)"""
+        with self.catalog_connection:  # commits on success, rolls back on any exception
+            self.cursor.execute("DELETE FROM photo_groups")  # cascades to bursts and members
+            for event in events:
+                self.cursor.execute(insert_group, ("event", None, event.camera_model,
+                                                   iso(event.start_time), iso(event.end_time)))
+                event_id = self.cursor.lastrowid
+                for burst in event.bursts:
+                    self.cursor.execute(insert_group, ("burst", event_id, burst.camera_model,
+                                                       iso(burst.start_time), iso(burst.end_time)))
+                    burst_id = self.cursor.lastrowid
+                    self.cursor.executemany(
+                        "INSERT INTO photo_group_members (group_id, image_hash, position) VALUES (?,?,?)",
+                        [(burst_id, photo.image_hash, position) for position, photo in enumerate(burst.photos)],
+                    )
     
     def close(self):
         if self.catalog_connection:
