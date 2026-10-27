@@ -17,6 +17,7 @@ from models.face_embeddings import FaceEmbeddings
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
+from datetime import datetime
 import json
 
 DEBUG = False
@@ -60,6 +61,10 @@ class Catalog:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
+        # capture_time is ISO 8601 text, so this index serves time-ordered scans per camera
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_photos_camera_time ON photos(camera_model, capture_time)"
+        )
         self.cursor.execute("""
         CREATE TABLE IF NOT EXISTS bounding_boxes (
             id INTEGER PRIMARY KEY,
@@ -129,7 +134,8 @@ class Catalog:
             (
                 str(photo.path_to_photo),
                 photo.image_hash,
-                str(capture_time) if capture_time is not None else None,
+                # Only a parsed datetime is stored; anything else means the capture time is unknown
+                capture_time.isoformat(timespec="milliseconds") if isinstance(capture_time, datetime) else None,
                 exif.get("x_resolution"),
                 exif.get("y_resolution"),
             ),
@@ -355,7 +361,7 @@ class Catalog:
             hashes.add(result["image_hash"])
         return hashes
 
-    def get_face_boxes_with_hash(self) -> defaultdict[str,list[BoundingBox]]:
+    def get_face_boxes_with_hash(self) -> defaultdict[str,list[BoundingBox]] | None:
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
 
@@ -365,7 +371,8 @@ class Catalog:
         for index,box in enumerate(results):
             if box["parent_box_id"] is not None:
                 boxes[self._get_hash_from_bounding_box_id(box["parent_box_id"])].append(BoundingBox.from_sql_row(box))
-
+            else:
+                return None
         return boxes
 
     def insert_face_landmarks(self, landmarks: list[FaceLandmarks]):
@@ -430,7 +437,19 @@ class Catalog:
         id = ?        
 """,(parent_id,)).fetchone()
         return hash["image_hash"]
-        
+
+    def get_photos_by_capture_time(self) -> list[sqlite3.Row]:
+        """Returns (image_hash, image_path, camera_model, capture_time) for photos with a known capture
+        time, ordered per camera so consecutive rows are consecutive shots."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+
+        return self.cursor.execute("""
+            SELECT image_hash, image_path, camera_model, capture_time
+            FROM photos
+            WHERE capture_time IS NOT NULL
+            ORDER BY camera_model, capture_time
+        """).fetchall()
     
     def close(self):
         if self.catalog_connection:
