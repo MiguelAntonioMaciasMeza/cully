@@ -32,7 +32,8 @@ class ExifReader:
 
     def __init__(self, path: Path):
         self.path = path
-        self.image_exif = {"datetime_original": "00:00:00 00:00:00.00"}
+        self.image_exif = {"datetime_original": None}
+        self.date_time = None
 
         suffix = path.suffix.lower()
         if suffix not in SUPPORTED_SUFFIXES:
@@ -86,14 +87,18 @@ class ExifReader:
             raw = self.image_exif.get("datetime_original")
             if raw is not None:
                 date_string = str(raw)
-                raw = self.image_exif["subsecond_original"]
-                sub_second = str(raw) if raw is not None else "0"
+                # RAWs store subseconds as subsecond_original, JPGs as subsec_time_original;
+                # a missing tag reads as None/-1/"None", so anything non-numeric counts as 0
+                raw = self.image_exif.get("subsecond_original", self.image_exif.get("subsec_time_original"))
+                sub_second = str(raw) if str(raw).isdigit() else "0"
                 date_string += "." + sub_second
                 date_time = datetime.strptime(date_string, "%Y:%m:%d %H:%M:%S.%f")
                 self.image_exif["datetime_original"] = date_time
+                self.date_time = date_time
 
         except (AttributeError, ValueError):
             self.date_time = None
+            self.image_exif["datetime_original"] = None
             if DEBUG:
                 print("File is missing dateTime_original tag")
 
