@@ -1,7 +1,8 @@
 """
-File: Cully/modules/models/photo_group.py
-Description: Models for capture-time grouping: an Event is a run of bursts from one camera with no
-long pause between shots, and a Burst is a run of photos taken within a few seconds of each other
+File: Cully/modules/models/photo_group.
+Description: Models for capture_time grouping. An Event represents a long time window in where
+images are taken, with Burst being a smaller window. An Event consists of Bursts, in where there is a 
+list of CapturedPhoto's to represent the photos that were within that smaller time window.
 Author: Miguel Macias
 Date: 2026-10-26
 """
