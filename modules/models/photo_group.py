@@ -1,11 +1,12 @@
 """
 File: Cully/modules/models/photo_group.
 Description: Models for capture_time grouping. An Event represents a long time window in where
-images are taken, with Burst being a smaller window. An Event consists of Bursts, in where there is a 
+images are taken, with Burst being a smaller window. An Event consists of Bursts, in where there is a
 list of CapturedPhoto's to represent the photos that were within that smaller time window.
 Author: Miguel Macias
 Date: 2026-10-26
 """
+
 from dataclasses import dataclass, field
 from datetime import datetime
 import sqlite3
@@ -14,6 +15,7 @@ import sqlite3
 @dataclass
 class CapturedPhoto:
     """A catalog photo with a known capture time. Unlike Photo, building one doesn't open the file."""
+
     image_hash: str
     image_path: str
     camera_model: str | None
