@@ -1,7 +1,8 @@
 """
 File: Cully/modules/models/face_landmarks.py
 Description: This file contains the FaceLandmarks class, that contains facial landmarks
-detected within a BoundingBox, with eye_blink_left and eye_blink_right stored directory as a value
+detected within a BoundingBox, with eye_blink_left and eye_blink_right stored directory as a value.
+Also calculates what the eye aspect ratio is per eye to compare against landmarkers own result. 
 while the rest are stored in JSON format
 Author: Miguel Macias
 Date: 2026-09-14
@@ -27,6 +28,9 @@ class FaceLandmarks:
     eye_blink_right: float = field(default_factory=float)
     landmark_scores: defaultdict[str, float] = field(default_factory=defaultdict)
     image_hash: str = field(default_factory=str)
+    # Eye aspect ratio per eye, None when no face was found in the crop
+    ear_left: float | None = None
+    ear_right: float | None = None
 
     @classmethod
     def from_landmark_detection(cls, box_id: int, results: list[Category],image_hash: str):
@@ -52,5 +56,7 @@ class FaceLandmarks:
             row["eye_blink_left"],
             row["eye_blink_right"],
             json.loads(row["landmark_scores_json"]),
-            row["image_hash"]
+            row["image_hash"],
+            row["ear_left"],
+            row["ear_right"],
         )
