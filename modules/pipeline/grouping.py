@@ -11,8 +11,10 @@ from scipy.spatial.distance import pdist
 from deepface.modules.verification import find_threshold
 from models.catalog import Catalog
 from models.boundingbox import BoundingBox
+from models.photo_group import Burst, CapturedPhoto, Event
 from collections import defaultdict
-from typing import Any, Optional
+from datetime import timedelta
+from typing import Optional
 DEBUG = False
 @dataclass
 class PersonGrouper:
@@ -50,8 +52,6 @@ class ImageGrouper:
     def __init__(self, catalog: Catalog):
         self.catalog = catalog
 
-    def group_by_exif_range(self, window: Any):
-        pass
     def group_boxes_by_hash(self,table:str) -> defaultdict[str,BoundingBox] | None:
         print("grouping boxes by hash")
         results = self.catalog.get_boxes_by_name(table)
@@ -60,6 +60,27 @@ class ImageGrouper:
 
         for result in results:
             print(result)
+
+    def group_by_capture_time(self, burst_gap: timedelta = timedelta(seconds=5),
+                              event_gap: timedelta = timedelta(minutes=30)) -> list[Event]:
+        """This method allows the pipeline to group photos into events, and each event into bursts,
+        by capture time.
+
+        Walks the photos in capture order per camera and starts a new event when the gap to the
+        previous shot exceeds event_gap (or the camera changes), and a new burst when it exceeds
+        burst_gap. Gap splitting keeps a burst together even when it straddles a minute boundary.
+        """
+        events: list[Event] = []
+        previous: CapturedPhoto | None = None
+        for photo in self.catalog.get_photos_by_capture_time():
+            if previous is None or photo.camera_model != previous.camera_model \
+                    or photo.capture_time - previous.capture_time > event_gap:
+                events.append(Event([Burst()]))
+            elif photo.capture_time - previous.capture_time > burst_gap:
+                events[-1].bursts.append(Burst())
+            events[-1].bursts[-1].photos.append(photo)
+            previous = photo
+        return events
 
 @dataclass
 class FaceGrouper:
