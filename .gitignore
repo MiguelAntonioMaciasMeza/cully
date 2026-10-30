@@ -9,3 +9,5 @@ venv-faces/
 /TestImages
 /Output
 *test.py
+COMPONENTS.md
+INTERFACES.md
