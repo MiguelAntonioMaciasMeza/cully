@@ -5,7 +5,6 @@ Author: Miguel Macias
 Date: 2026-10-20
 """
 import cv2
-from dataclasses import dataclass, _DefaultFactory
 import numpy as np
 from models.boundingbox import BoundingBox
 import utils.image_ops as utils
