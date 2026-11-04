@@ -34,4 +34,8 @@ class SharpnessStep:
             # Grade each box for image
             for box in boxes:
                 if method == "laplacian":
-                    rows.append((box.id, "laplacian", laplacian_sharpness(img, box)))
+                    # A box with no area inside the image can't be graded, skip it rather than the whole run
+                    try:
+                        rows.append((box.id, "laplacian", laplacian_sharpness(img, box)))
+                    except ValueError as e:
+                        print(f"[sharpness.py] Skipping box {box.id} on hash {image_hash}: {e}")
