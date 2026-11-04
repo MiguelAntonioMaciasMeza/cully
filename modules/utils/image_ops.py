@@ -15,7 +15,13 @@ def normalize_crop(img: np.ndarray, box: BoundingBox, target: int = 256) -> np.n
     Grabs the croped section of a image derived from BoundingBox. The cropped image 
     will then be turned to gray scale and normalized, which other modules can use for scoring.
     """
-    crop = img[box.y1:box.y2, box.x1:box.x2]
+    # Detector boxes can hang past the frame, and negative indices would wrap around in numpy
+    height, width = img.shape[:2]
+    x1, x2 = max(0, box.x1), min(width, box.x2)
+    y1, y2 = max(0, box.y1), min(height, box.y2)
+    if x1 >= x2 or y1 >= y2:
+        raise ValueError(f"[image_ops.py] box {box} has no area inside the {width}x{height} image")
+    crop = img[y1:y2, x1:x2]
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
     scale = target/max(gray.shape[:2])
     return  cv2.resize(gray,(0,0), fx=scale, fy=scale, interpolation = cv2.INTER_AREA)
