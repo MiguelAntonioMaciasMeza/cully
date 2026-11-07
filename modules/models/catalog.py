@@ -15,6 +15,7 @@ from models.boundingbox import BoundingBox
 from models.face_landmarks import FaceLandmarks
 from models.face_embeddings import FaceEmbeddings
 from models.photo_group import CapturedPhoto, Event
+from models.face_score import FaceScore, RankedPhoto
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
@@ -124,6 +125,16 @@ class Catalog:
             embedding_json TEXT,
             FOREIGN KEY (face_box_id) REFERENCES face_boxes(id),
             FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
+            )
+        """)
+        # One score per face per method, so rerunning a method overwrites its old score
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS face_scores(
+            face_box_id INTEGER NOT NULL,
+            method TEXT NOT NULL,
+            score REAL,
+            PRIMARY KEY (face_box_id, method),
+            FOREIGN KEY (face_box_id) REFERENCES face_boxes(id)
             )
         """)
         # Groups are regenerated on every regroup, so their ids aren't stable; user decisions
@@ -598,6 +609,64 @@ class Catalog:
                             for position, photo in enumerate(burst.photos)
                         ],
                     )
+
+    def insert_face_scores(self, rows: list[tuple[int, str, float]]):
+        """Stores (face_box_id, method, score) rows, replacing any older score for the same method."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        if not rows:
+            return
+        self.cursor.executemany(
+            """
+            INSERT INTO face_scores (face_box_id, method, score) VALUES (?,?,?)
+            ON CONFLICT (face_box_id, method) DO UPDATE SET score = excluded.score
+            """,
+            rows,
+        )
+        self.catalog_connection.commit()
+
+    def get_face_scores_for_hashes(
+        self, hashes: list[str], method: str
+    ) -> list[FaceScore]:
+        """Returns each scored face in the given photos with its EAR (None if no landmarks)."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        if not hashes:
+            return []
+        placeholders = ",".join("?" * len(hashes))
+        results = self.cursor.execute(
+            f"""
+            SELECT fs.face_box_id, bb.image_hash, fs.score, fl.ear_left, fl.ear_right
+            FROM face_scores fs
+            JOIN face_boxes fb ON fb.id = fs.face_box_id
+            JOIN bounding_boxes bb ON bb.id = fb.parent_box_id
+            LEFT JOIN face_landmarks fl ON fl.face_box_id = fs.face_box_id
+            WHERE fs.method = ? AND bb.image_hash IN ({placeholders})
+            """,
+            (method, *hashes),
+        ).fetchall()
+        return [FaceScore.from_sql_row(row) for row in results]
+
+    def update_burst_ranking(self, ranked: list[RankedPhoto]):
+        """Saves each photo's score and marks the rank 1 photo as its burst's best. The burst is
+        found through photo_group_members, so replace_photo_groups must have run first."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        if not ranked:
+            return
+        best = min(ranked, key=lambda photo: photo.rank)
+        with self.catalog_connection:
+            self.cursor.executemany(
+                "UPDATE photos SET final_score = ? WHERE image_hash = ?",
+                [(photo.score, photo.image_hash) for photo in ranked],
+            )
+            self.cursor.execute(
+                """
+                UPDATE photo_groups SET best_image_hash = ?
+                WHERE id = (SELECT group_id FROM photo_group_members WHERE image_hash = ?)
+                """,
+                (best.image_hash, best.image_hash),
+            )
 
     def close(self):
         if self.catalog_connection:

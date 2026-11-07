@@ -39,3 +39,5 @@ class SharpnessStep:
                         rows.append((box.id, "laplacian", laplacian_sharpness(img, box)))
                     except ValueError as e:
                         print(f"[sharpness.py] Skipping box {box.id} on hash {image_hash}: {e}")
+
+        self.catalog.insert_face_scores(rows)
