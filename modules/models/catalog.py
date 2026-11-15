@@ -643,6 +643,7 @@ class Catalog:
             JOIN bounding_boxes bb ON bb.id = fb.parent_box_id
             LEFT JOIN face_landmarks fl ON fl.face_box_id = fs.face_box_id
             WHERE fs.method = ? AND bb.image_hash IN ({placeholders})
+                AND fb.name IS NOT 'No Faces Found'  -- the whole person box, not a face
             """,
             (method, *hashes),
         ).fetchall()
