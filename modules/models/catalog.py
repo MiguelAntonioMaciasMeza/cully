@@ -450,14 +450,15 @@ class Catalog:
 
         results = self.cursor.execute("SELECT * FROM face_boxes").fetchall()
 
-        boxes: defaultdict[int, list[BoundingBox]] = defaultdict(list)
+        boxes: defaultdict[str, list[BoundingBox]] = defaultdict(list)
         for index, box in enumerate(results):
-            if box["parent_box_id"] is not None:
-                boxes[self._get_hash_from_bounding_box_id(box["parent_box_id"])].append(
-                    BoundingBox.from_sql_row(box)
-                )
-            else:
-                return None
+            # A box without a person box can't be traced to its photo, so skip it rather than every box
+            if box["parent_box_id"] is None:
+                print(f"[catalog.py] Skipping face box {box['id']}, it has no parent person box")
+                continue
+            boxes[self._get_hash_from_bounding_box_id(box["parent_box_id"])].append(
+                BoundingBox.from_sql_row(box)
+            )
 
         return boxes
 
@@ -667,6 +668,19 @@ class Catalog:
                 """,
                 (best.image_hash, best.image_hash),
             )
+
+    def delete_orphan_face_boxes(self) -> int:
+        """Deletes face boxes with no parent person box, plus anything stored on them. Returns how
+        many boxes were deleted."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        orphans = "SELECT id FROM face_boxes WHERE parent_box_id IS NULL"
+        with self.catalog_connection:
+            # Children first, the foreign keys point at face_boxes
+            for table in ("face_embeddings", "face_landmarks", "face_scores"):
+                self.cursor.execute(f"DELETE FROM {table} WHERE face_box_id IN ({orphans})")
+            self.cursor.execute("DELETE FROM face_boxes WHERE parent_box_id IS NULL")
+            return self.cursor.rowcount
 
     def close(self):
         if self.catalog_connection:
