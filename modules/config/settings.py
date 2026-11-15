@@ -28,6 +28,7 @@ DEFAULT_SETTINGS = {
     "YOLOModel":str(YOLOModel.NANO.value),
     "min_dimension": {"saliency": 640, "face": 400, "blur": 300},
     "object_threshold": 75,
+    "face_threshold": 70,  # below this, face boxes are mostly the back of a head or clothing
 }
 
 settings_path = Path.home() / ".config" / "cully" / "settings.json"
@@ -43,6 +44,7 @@ class Settings:
         default_factory=lambda: DEFAULT_SETTINGS["min_dimension"]
     )
     object_threshold: float = field(default=DEFAULT_SETTINGS["object_threshold"])
+    face_threshold: float = field(default=DEFAULT_SETTINGS["face_threshold"])
 
     def __post_init__(self):
         # Check if directory exists, if not create

@@ -19,6 +19,7 @@ from mediapipe.tasks.python.vision import FaceDetector
 from mediapipe.tasks.python.components.containers.detections import Detection, DetectionResult
 import mediapipe
 from config.config import Config
+from config.settings import Settings
 from models.boundingbox import BoundingBox
 from platformdirs import user_data_dir
 import cv2
@@ -33,6 +34,7 @@ MODEL_DIR = str(user_data_dir("cully") + "/models/mediapipe/face_detection/blaze
 @dataclass
 class FaceDetector:
     config: Config = field(default_factory=Config)
+    settings: Settings = field(default_factory=Settings)
     detector: FaceDetector = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -90,6 +92,9 @@ class FaceDetector:
                 result.bounding_box.height ,
                 result.categories[0].score * 100
             )
+            # Low confidence boxes are mostly the back of a head or clothing, not a usable face
+            if confidence < self.settings.face_threshold:
+                continue
             boxes.append(BoundingBox(round(confidence,2), "Media Pipe Face Detector", "Face Box", x1, y1, x1 + width, y1 + height, origin_box.id))
         return boxes
 
