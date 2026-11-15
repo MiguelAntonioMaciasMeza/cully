@@ -17,8 +17,9 @@ class FaceScore:
     sharpness: float
     # Smaller of the two EARs, so a wink counts as closed. None when landmarks found no face
     ear: float | None = None
-    # Who this face is (from FaceGrouper), None when the face has no embedding
+    # Who this face is, from position matching within the burst (scoring/face_matching.py)
     person_id: int | None = None
+    box: tuple[int, int, int, int] | None = None  # x1, y1, x2, y2 in the full image
 
     @classmethod
     def from_sql_row(cls, row: sqlite3.Row):
@@ -28,6 +29,7 @@ class FaceScore:
             row["image_hash"],
             row["score"],
             None if None in ears else min(ears),
+            box=(row["x1"], row["y1"], row["x2"], row["y2"]),
         )
 
 

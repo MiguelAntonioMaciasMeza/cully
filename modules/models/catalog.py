@@ -627,9 +627,11 @@ class Catalog:
         self.catalog_connection.commit()
 
     def get_face_scores_for_hashes(
-        self, hashes: list[str], method: str
+        self, hashes: list[str], method: str, min_confidence: float = 0
     ) -> list[FaceScore]:
-        """Returns each scored face in the given photos with its EAR (None if no landmarks)."""
+        """Returns each scored face in the given photos with its box and EAR (None if no
+        landmarks). Faces below min_confidence are left out, which also covers boxes stored
+        before the face threshold existed."""
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
         if not hashes:
@@ -637,15 +639,17 @@ class Catalog:
         placeholders = ",".join("?" * len(hashes))
         results = self.cursor.execute(
             f"""
-            SELECT fs.face_box_id, bb.image_hash, fs.score, fl.ear_left, fl.ear_right
+            SELECT fs.face_box_id, bb.image_hash, fs.score, fl.ear_left, fl.ear_right,
+                fb.x1, fb.y1, fb.x2, fb.y2
             FROM face_scores fs
             JOIN face_boxes fb ON fb.id = fs.face_box_id
             JOIN bounding_boxes bb ON bb.id = fb.parent_box_id
             LEFT JOIN face_landmarks fl ON fl.face_box_id = fs.face_box_id
             WHERE fs.method = ? AND bb.image_hash IN ({placeholders})
                 AND fb.name IS NOT 'No Faces Found'  -- the whole person box, not a face
+                AND fb.confidence >= ?
             """,
-            (method, *hashes),
+            (method, *hashes, min_confidence),
         ).fetchall()
         return [FaceScore.from_sql_row(row) for row in results]
 
