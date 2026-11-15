@@ -4,13 +4,15 @@ Description: Regroups the catalog into bursts, ranks the photos in each burst by
 and eye openness (see scoring/burst_rank.py). This is ran after the initial pipeline of determining
 eye state and sharpness calculation
 Faces are matched across frames by box position (scoring/face_matching.py), not embeddings, and
-faces below the face_threshold setting are left out.
+faces below the face_threshold setting are left out. Burst/event gaps come from the grouping
+setting, eye and matching values from the ranking setting.
 Run with venv-faces, pipeline/grouping.py imports scipy and deepface.
 Author: Miguel Macias
 Date: 2026-11-06
 """
 
 from dataclasses import dataclass, field
+from datetime import timedelta
 
 from config.settings import Settings
 from models.catalog import Catalog
@@ -26,7 +28,11 @@ class BurstRankStep:
     settings: Settings = field(default_factory=Settings)
 
     def run(self, method: str = "laplacian") -> list[list[RankedPhoto]]:
-        events = ImageGrouper(self.catalog).group_by_capture_time()
+        grouping, ranking = self.settings.grouping, self.settings.ranking
+        events = ImageGrouper(self.catalog).group_by_capture_time(
+            timedelta(seconds=grouping["burst_gap_seconds"]),
+            timedelta(minutes=grouping["event_gap_minutes"]),
+        )
         # Rankings are saved through the stored groups, so store these first
         self.catalog.replace_photo_groups(events)
 
@@ -40,9 +46,9 @@ class BurstRankStep:
                 if not faces:
                     print(f"[burst_ranking.py] No scored faces in burst starting {burst.start_time}, skipping")
                     continue
-                match_by_position(faces, hashes)
+                match_by_position(faces, hashes, ranking["face_match_iou"])
 
-                ranked = rank_burst(faces)
+                ranked = rank_burst(faces, ranking["eye_gate"], ranking["ear_floor"])
                 self.catalog.update_burst_ranking(ranked)
                 rankings.append(ranked)
         return rankings

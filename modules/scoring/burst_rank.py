@@ -25,7 +25,9 @@ def _ratio(value: float, best: float) -> float:
     return value / best if best > 0 else 1.0
 
 
-def rank_burst(faces: list[FaceScore], eye_gate: float = EYE_GATE) -> list[RankedPhoto]:
+def rank_burst(
+    faces: list[FaceScore], eye_gate: float = EYE_GATE, ear_floor: float = EAR_FLOOR
+) -> list[RankedPhoto]:
     # Faces without a person id can't be matched across frames, so each is its own person
     by_person: defaultdict[object, list[FaceScore]] = defaultdict(list)
     for face in faces:
@@ -43,7 +45,7 @@ def rank_burst(faces: list[FaceScore], eye_gate: float = EYE_GATE) -> list[Ranke
             sharp_by_photo[face.image_hash].append(_ratio(face.sharpness, best_sharp))
             # No EAR means we can't tell, so don't punish the photo for it
             eyes_open = face.ear is None or (
-                face.ear >= EAR_FLOOR and _ratio(face.ear, best_ear) >= eye_gate
+                face.ear >= ear_floor and _ratio(face.ear, best_ear) >= eye_gate
             )
             open_by_photo[face.image_hash].append(eyes_open)
 
