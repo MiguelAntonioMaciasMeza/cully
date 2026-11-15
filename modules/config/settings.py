@@ -26,7 +26,9 @@ DEFAULT_SETTINGS = {
     "saliency_scale": float(SaliencyInputScale.U2NETNATIVE.value),
     "saliency_model": str(SaliencyModels.U2NET.value),
     "YOLOModel":str(YOLOModel.NANO.value),
-    "min_dimension": {"saliency": 640, "face": 400, "blur": 300},
+    "min_dimension": {"saliency": 640, "face": 400},  # not used yet
+    # Size (longest side) a crop is scaled to before each step scores it
+    "crop_size": {"sharpness": 300},
     "object_threshold": 75,
     "face_threshold": 70,  # below this, face boxes are mostly the back of a head or clothing
 }
@@ -43,6 +45,7 @@ class Settings:
     min_dimension: dict[str, int] = field(
         default_factory=lambda: DEFAULT_SETTINGS["min_dimension"]
     )
+    crop_size: dict[str, int] = field(default_factory=lambda: DEFAULT_SETTINGS["crop_size"])
     object_threshold: float = field(default=DEFAULT_SETTINGS["object_threshold"])
     face_threshold: float = field(default=DEFAULT_SETTINGS["face_threshold"])
 

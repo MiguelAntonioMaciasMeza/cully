@@ -1,11 +1,13 @@
 """
 File: Cully/modules/pipeline/sharpness.py
-Description:
+Description: Scores how sharp every stored face box is and saves the scores to the catalog's
+face_scores table. Crops are scaled to the crop_size["sharpness"] setting before scoring.
 Author: Miguel Macias
 Date: 2026-10-30
 """
 
 from dataclasses import dataclass, field
+from config.settings import Settings
 from models.catalog import Catalog
 from scoring.laplacian import laplacian_sharpness
 import cv2
@@ -14,8 +16,10 @@ import cv2
 @dataclass
 class SharpnessStep:
     catalog: Catalog = field(default_factory=Catalog)
+    settings: Settings = field(default_factory=Settings)
 
     def run(self, method: str):
+        target = self.settings.crop_size["sharpness"]
         boxes_by_hash = self.catalog.get_face_boxes_with_hash()
         rows = []
         if boxes_by_hash is None:
@@ -36,7 +40,7 @@ class SharpnessStep:
                 if method == "laplacian":
                     # A box with no area inside the image can't be graded, skip it rather than the whole run
                     try:
-                        rows.append((box.id, "laplacian", laplacian_sharpness(img, box)))
+                        rows.append((box.id, "laplacian", laplacian_sharpness(img, box, target)))
                     except ValueError as e:
                         print(f"[sharpness.py] Skipping box {box.id} on hash {image_hash}: {e}")
 
