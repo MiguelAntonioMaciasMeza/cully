@@ -15,6 +15,9 @@ from collections import defaultdict
 from models.face_score import FaceScore, RankedPhoto
 
 EYE_GATE = 0.6
+# Open eyes measure about 0.25-0.35, closed under about 0.13. Below this an eye is closed no matter
+# what the rest of the burst looks like, which covers faces seen in only one frame
+EAR_FLOOR = 0.15
 
 
 def _ratio(value: float, best: float) -> float:
@@ -39,7 +42,9 @@ def rank_burst(faces: list[FaceScore], eye_gate: float = EYE_GATE) -> list[Ranke
         for face in person_faces:
             sharp_by_photo[face.image_hash].append(_ratio(face.sharpness, best_sharp))
             # No EAR means we can't tell, so don't punish the photo for it
-            eyes_open = face.ear is None or _ratio(face.ear, best_ear) >= eye_gate
+            eyes_open = face.ear is None or (
+                face.ear >= EAR_FLOOR and _ratio(face.ear, best_ear) >= eye_gate
+            )
             open_by_photo[face.image_hash].append(eyes_open)
 
     ranked = [
