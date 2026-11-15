@@ -3,7 +3,7 @@ File: Cully/modules/scoring/burst_rank.py
 Description: Ranks the photos of one burst against each other. Raw sharpness and EAR don't
 compare across scenes or people so everything is ranked relative to each other.
 As of now the rankings across bursts only use two metrics: 
-    -Eyes: a face is closed when 
+    -Eyes: an eye is closed below its EAR threshold
     -Sharpness: a photo scores as its weakest face, so one soft face drags a group shot down.
 Photos with no faces aren't in the input, so they're left unranked, thinking how to address in the future.
 Author: Miguel Macias
