@@ -1,6 +1,7 @@
 from ultralytics import YOLO
 from ultralytics.engine.results import Results
 from dataclasses import dataclass, field
+from config.config import Config
 from config.settings import Settings
 from models.photo import Photo
 from models.boundingbox import BoundingBox
@@ -18,12 +19,16 @@ class Objects:
     path: Path = field(default_factory=Path)
     output_dir: str = field(default_factory=str)
     settings: Settings = field(default_factory=Settings)
-    model: YOLO = field(default_factory=YOLO, init=False,repr=False)
+    config: Config = field(default_factory=Config)
+    # No default: a bare YOLO() would load Ultralytics' default model from the current folder
+    model: YOLO = field(init=False, repr=False)
 
     def __post_init__(self):
         self.output_dir = self.path.stem + ".jpg"
-        self.model = YOLO(self.settings.YOLOModel)
-        self.model.cuda()
+        # Ultralytics downloads official weights to this path if the file is missing
+        model_path = Path(self.config.models_path) / "object_detection" / self.settings.YOLOModel
+        self.model = YOLO(model_path)
+        self.model.to(self.settings.hardware["device"])
 
     def detect_objects(self, img: np.ndarray,inverse_scale: float) -> list[BoundingBox] | None:
         self.prediction = cast(list, self.model.predict(img, verbose=False))

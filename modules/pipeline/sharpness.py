@@ -18,7 +18,10 @@ class SharpnessStep:
     catalog: Catalog = field(default_factory=Catalog)
     settings: Settings = field(default_factory=Settings)
 
-    def run(self, method: str):
+    def run(self, method: str | None = None):
+        method = method or self.settings.models["sharpness"]
+        if method != "laplacian":
+            raise ValueError(f"[sharpness.py] Unknown sharpness method {method!r}, expected 'laplacian'")
         target = self.settings.crop_size["sharpness"]
         boxes_by_hash = self.catalog.get_face_boxes_with_hash()
         rows = []
@@ -37,11 +40,10 @@ class SharpnessStep:
 
             # Grade each box for image
             for box in boxes:
-                if method == "laplacian":
-                    # A box with no area inside the image can't be graded, skip it rather than the whole run
-                    try:
-                        rows.append((box.id, "laplacian", laplacian_sharpness(img, box, target)))
-                    except ValueError as e:
-                        print(f"[sharpness.py] Skipping box {box.id} on hash {image_hash}: {e}")
+                # A box with no area inside the image can't be graded, skip it rather than the whole run
+                try:
+                    rows.append((box.id, method, laplacian_sharpness(img, box, target)))
+                except ValueError as e:
+                    print(f"[sharpness.py] Skipping box {box.id} on hash {image_hash}: {e}")
 
         self.catalog.insert_face_scores(rows)

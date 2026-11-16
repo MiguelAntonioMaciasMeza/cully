@@ -2,14 +2,7 @@
 File: Cully/modules/detector/face_detector.py
 Description: reads image and returns back the bounding_box tied only to the face region. This region will be used for getting
 facial embeddings as it will allow DeepFace to already have a selected are for a given face
-
-TO DO: 
-    -FIX MODEL PATH: Current grabs from hard coded model_path, pass in settings so it'll
-    grab model path from whatever config has it as
-
-
-
-
+The model is loaded from Config.models_path.
 Date: 2026-09-08
 """
 
@@ -21,14 +14,13 @@ import mediapipe
 from config.config import Config
 from config.settings import Settings
 from models.boundingbox import BoundingBox
-from platformdirs import user_data_dir
+from pathlib import Path
 import cv2
 DEBUG = False
 BaseOptions = mediapipe.tasks.BaseOptions
 MPFaceDetector = mediapipe.tasks.vision.FaceDetector
 FaceDetectorOptions = mediapipe.tasks.vision.FaceDetectorOptions
 VisionRunningMode = mediapipe.tasks.vision.RunningMode
-MODEL_DIR = str(user_data_dir("cully") + "/models/mediapipe/face_detection/blaze_face_full_range.tflite")
 
 
 @dataclass
@@ -38,8 +30,9 @@ class FaceDetector:
     detector: FaceDetector = field(init=False, repr=False)
 
     def __post_init__(self):
+        model_path = Path(self.config.models_path) / "mediapipe" / "face_detection" / "blaze_face_full_range.tflite"
         options = FaceDetectorOptions(
-            base_options=BaseOptions(model_asset_path=MODEL_DIR),
+            base_options=BaseOptions(model_asset_path=str(model_path)),
             running_mode=VisionRunningMode.IMAGE
         )
         self.detector = MPFaceDetector.create_from_options(options)

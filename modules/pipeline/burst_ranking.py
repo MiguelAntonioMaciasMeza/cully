@@ -27,7 +27,8 @@ class BurstRankStep:
     catalog: Catalog = field(default_factory=Catalog)
     settings: Settings = field(default_factory=Settings)
 
-    def run(self, method: str = "laplacian") -> list[list[RankedPhoto]]:
+    def run(self, method: str | None = None) -> list[list[RankedPhoto]]:
+        method = method or self.settings.models["sharpness"]
         grouping, ranking = self.settings.grouping, self.settings.ranking
         events = ImageGrouper(self.catalog).group_by_capture_time(
             timedelta(seconds=grouping["burst_gap_seconds"]),

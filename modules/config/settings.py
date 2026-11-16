@@ -36,6 +36,12 @@ DEFAULT_SETTINGS = {
     # Burst ranking: eyes are closed under eye_gate of the person's best EAR or under ear_floor,
     # and faces in two frames are the same person when their boxes overlap by face_match_iou
     "ranking": {"eye_gate": 0.6, "ear_floor": 0.15, "face_match_iou": 0.3},
+    # Which model or method each step uses
+    "models": {"embedding": "Facenet512", "embedding_metric": "cosine", "sharpness": "laplacian"},
+    # "cuda" or "cpu". Only YOLO uses it for now, DeepFace and MediaPipe pick their own device
+    "hardware": {"device": "cuda"},
+    # object_scale: images are shrunk by this before YOLO (no pipeline step uses it yet)
+    "detection": {"object_scale": 0.5},
 }
 
 settings_path = Path.home() / ".config" / "cully" / "settings.json"
@@ -56,6 +62,9 @@ class Settings:
     face_threshold: float = field(default=DEFAULT_SETTINGS["face_threshold"])
     grouping: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["grouping"]))
     ranking: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["ranking"]))
+    models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["models"]))
+    hardware: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["hardware"]))
+    detection: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["detection"]))
 
     def __post_init__(self):
         # Check if directory exists, if not create

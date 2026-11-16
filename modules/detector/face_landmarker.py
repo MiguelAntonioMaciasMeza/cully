@@ -19,17 +19,13 @@ from collections import defaultdict
 import cv2
 import numpy as np
 import pprint
-from platformdirs import user_data_dir
+from pathlib import Path
 
 DEBUG = False
 BaseOptions = mediapipe.tasks.BaseOptions
 MPFaceLandmarker = mediapipe.tasks.vision.FaceLandmarker
 LandmarkerOptions = mediapipe.tasks.vision.FaceLandmarkerOptions
 VisionRunningMode = mediapipe.tasks.vision.RunningMode
-MODEL_DIR = str(
-    user_data_dir("cully") + "/models/mediapipe/face_landmarker/face_landmarker.task"
-)
-print(MODEL_DIR)
 
 # Face mesh indices for EAR as p1..p6: p1/p4 are the eye corners, p2/p6 and p3/p5 the upper/lower
 # lid pairs. Left/right are the subject's, matching the eyeBlinkLeft/eyeBlinkRight blendshapes
@@ -52,8 +48,9 @@ class FaceLandmarker:
     detector: FaceLandmarker = field(init=False, repr=False)
 
     def __post_init__(self):
+        model_path = Path(self.config.models_path) / "mediapipe" / "face_landmarker" / "face_landmarker.task"
         options = FaceLandmarkerOptions(
-            base_options=BaseOptions(model_asset_path=MODEL_DIR),
+            base_options=BaseOptions(model_asset_path=str(model_path)),
             running_mode=VisionRunningMode.IMAGE,
             output_face_blendshapes=True,
         )

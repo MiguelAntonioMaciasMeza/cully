@@ -9,6 +9,7 @@ import numpy as np
 from scipy.cluster.hierarchy import fcluster, linkage
 from scipy.spatial.distance import pdist
 from deepface.modules.verification import find_threshold
+from config.settings import Settings
 from models.catalog import Catalog
 from models.boundingbox import BoundingBox
 from models.photo_group import Burst, CapturedPhoto, Event
@@ -85,8 +86,14 @@ class ImageGrouper:
 @dataclass
 class FaceGrouper:
     catalog: Catalog
-    model_name: str = "Facenet512"
-    metric: str = "cosine"
+    # model_name and metric come from the "models" setting unless given here
+    model_name: str = ""
+    metric: str = ""
+    settings: Settings = field(default_factory=Settings)
+
+    def __post_init__(self):
+        self.model_name = self.model_name or self.settings.models["embedding"]
+        self.metric = self.metric or self.settings.models["embedding_metric"]
 
     def group_faces(self) -> dict[int, int]:
         """Clusters the stored embeddings for model_name into people.

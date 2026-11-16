@@ -12,6 +12,7 @@ from numpy.typing import NDArray
 import tensorflow as tf
 from deepface import DeepFace
 from deepface.modules.verification import find_distance, find_threshold
+from config.settings import Settings
 from models.catalog import Catalog
 from models.face_embeddings import FaceEmbeddings as FaceEmbeddingRow
 
@@ -21,9 +22,14 @@ for gpu in tf.config.list_physical_devices("GPU"):
 
 @dataclass
 class FaceEmbeddings:
-    model_name: str = "Facenet512"
+    # model_name and metric come from the "models" setting unless given here
+    model_name: str = ""
+    metric: str = ""
+    settings: Settings = field(default_factory=Settings)
 
     def __post_init__(self):
+        self.model_name = self.model_name or self.settings.models["embedding"]
+        self.metric = self.metric or self.settings.models["embedding_metric"]
         DeepFace.build_model(task="facial_recognition", model_name=self.model_name)
 
     def embed(self, crop: NDArray[np.uint8]) -> list[float] | None:
@@ -60,7 +66,7 @@ class FaceEmbeddings:
         self,
         catalog: Catalog,
         crop: NDArray[np.uint8],
-        metric: str = "cosine",
+        metric: str | None = None,
         k: int | None = None,
     ) -> list[tuple[FaceEmbeddingRow, float]]:
         """Embeds crop and returns catalog matches sorted by ascending distance.
@@ -72,6 +78,7 @@ class FaceEmbeddings:
         if query_embedding is None:
             return []
 
+        metric = metric or self.metric
         threshold = find_threshold(self.model_name, metric)
         candidates = catalog.get_face_embeddings(self.model_name)
 
@@ -88,8 +95,9 @@ class FaceEmbeddings:
     def compare_and_group(
         self,
         embeddings: dict[int, list[float]],
-        metric: str = "cosine",
+        metric: str | None = None,
     ) -> dict[int, int]:
+        metric = metric or self.metric
         threshold = find_threshold(self.model_name, metric)
         groups: list[list[int]] = []  # each group is a list of face_box_ids
         assignment: dict[int, int] = {}

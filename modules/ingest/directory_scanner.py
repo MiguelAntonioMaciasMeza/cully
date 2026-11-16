@@ -5,6 +5,7 @@ Author: Miguel Macias
 Date: 2026-09-11
 """
 
+from ingest.exif_reader import SUPPORTED_SUFFIXES
 from models.photo import Photo
 from models.catalog import Catalog
 from pathlib import Path
@@ -22,7 +23,7 @@ class DirectoryScanner:
     def scan(self, directory: Path):
         photos = list()
         for path in sorted(directory.iterdir()):
-            if path.suffix.lower() not in (".jpg", ".jpeg", ".cr2"):
+            if path.suffix.lower() not in SUPPORTED_SUFFIXES:
                 continue
             photo = Photo(path)
             self.catalog.insert_photo(photo)
