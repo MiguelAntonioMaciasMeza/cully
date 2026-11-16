@@ -34,8 +34,9 @@ DEFAULT_SETTINGS = {
     # How far apart shots can be and still count as one burst / one event
     "grouping": {"burst_gap_seconds": 5, "event_gap_minutes": 30},
     # Burst ranking: eyes are closed under eye_gate of the person's best EAR or under ear_floor,
-    # and faces in two frames are the same person when their boxes overlap by face_match_iou
-    "ranking": {"eye_gate": 0.6, "ear_floor": 0.15, "face_match_iou": 0.3},
+    # and faces in two frames are the same person when their boxes overlap by face_match_iou.
+    # eye_check: false ranks on sharpness only, for posed eyes-down shots
+    "ranking": {"eye_gate": 0.6, "ear_floor": 0.15, "face_match_iou": 0.3, "eye_check": True},
     # Which model or method each step uses
     "models": {"embedding": "Facenet512", "embedding_metric": "cosine", "sharpness": "laplacian"},
     # "cuda" or "cpu". Only YOLO uses it for now, DeepFace and MediaPipe pick their own device
@@ -61,7 +62,7 @@ class Settings:
     object_threshold: float = field(default=DEFAULT_SETTINGS["object_threshold"])
     face_threshold: float = field(default=DEFAULT_SETTINGS["face_threshold"])
     grouping: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["grouping"]))
-    ranking: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["ranking"]))
+    ranking: dict[str, float | bool] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["ranking"]))
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["models"]))
     hardware: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["hardware"]))
     detection: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["detection"]))

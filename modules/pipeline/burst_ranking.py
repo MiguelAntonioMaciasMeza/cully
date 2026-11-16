@@ -5,7 +5,7 @@ and eye openness (see scoring/burst_rank.py). This is ran after the initial pipe
 eye state and sharpness calculation
 Faces are matched across frames by box position (scoring/face_matching.py), not embeddings, and
 faces below the face_threshold setting are left out. Burst/event gaps come from the grouping
-setting, eye and matching values from the ranking setting.
+setting, eye and matching values from the ranking setting (eye_check off ranks on sharpness only).
 Run with venv-faces, pipeline/grouping.py imports scipy and deepface.
 Author: Miguel Macias
 Date: 2026-11-06
@@ -49,7 +49,7 @@ class BurstRankStep:
                     continue
                 match_by_position(faces, hashes, ranking["face_match_iou"])
 
-                ranked = rank_burst(faces, ranking["eye_gate"], ranking["ear_floor"])
+                ranked = rank_burst(faces, ranking["eye_gate"], ranking["ear_floor"], bool(ranking["eye_check"]))
                 self.catalog.update_burst_ranking(ranked)
                 rankings.append(ranked)
         return rankings

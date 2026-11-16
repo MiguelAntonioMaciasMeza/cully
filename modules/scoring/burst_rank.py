@@ -3,7 +3,7 @@ File: Cully/modules/scoring/burst_rank.py
 Description: Ranks the photos of one burst against each other. Raw sharpness and EAR don't
 compare across scenes or people so everything is ranked relative to each other.
 As of now the rankings across bursts only use two metrics: 
-    -Eyes: an eye is closed below its EAR threshold
+    -Eyes: an eye is closed below its EAR threshold. eye_check=False skips this, sharpness only
     -Sharpness: a photo scores as its weakest face, so one soft face drags a group shot down.
 Photos with no faces aren't in the input, so they're left unranked, thinking how to address in the future.
 Author: Miguel Macias
@@ -26,7 +26,10 @@ def _ratio(value: float, best: float) -> float:
 
 
 def rank_burst(
-    faces: list[FaceScore], eye_gate: float = EYE_GATE, ear_floor: float = EAR_FLOOR
+    faces: list[FaceScore],
+    eye_gate: float = EYE_GATE,
+    ear_floor: float = EAR_FLOOR,
+    eye_check: bool = True,
 ) -> list[RankedPhoto]:
     # Faces without a person id can't be matched across frames, so each is its own person
     by_person: defaultdict[object, list[FaceScore]] = defaultdict(list)
@@ -44,7 +47,7 @@ def rank_burst(
         for face in person_faces:
             sharp_by_photo[face.image_hash].append(_ratio(face.sharpness, best_sharp))
             # No EAR means we can't tell, so don't punish the photo for it
-            eyes_open = face.ear is None or (
+            eyes_open = not eye_check or face.ear is None or (
                 face.ear >= ear_floor and _ratio(face.ear, best_ear) >= eye_gate
             )
             open_by_photo[face.image_hash].append(eyes_open)
