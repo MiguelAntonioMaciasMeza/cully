@@ -5,6 +5,7 @@ compare across scenes or people so everything is ranked relative to each other.
 As of now the rankings across bursts only use two metrics: 
     -Eyes: an eye is closed below its EAR threshold. eye_check=False skips this, sharpness only
     -Sharpness: a photo scores as its weakest face, so one soft face drags a group shot down.
+Candidates: rank 1 always, plus photos with open eyes scoring at least candidate_margin of the best.
 Photos with no faces aren't in the input, so they're left unranked, thinking how to address in the future.
 Author: Miguel Macias
 Date: 2026-11-06
@@ -18,6 +19,8 @@ EYE_GATE = 0.6
 # Open eyes measure about 0.25-0.35, closed under about 0.13. Below this an eye is closed no matter
 # what the rest of the burst looks like, which covers faces seen in only one frame
 EAR_FLOOR = 0.15
+# Photos at or above this share of the best score (with open eyes) are candidates
+CANDIDATE_MARGIN = 0.9
 
 
 def _ratio(value: float, best: float) -> float:
@@ -30,6 +33,8 @@ def rank_burst(
     eye_gate: float = EYE_GATE,
     ear_floor: float = EAR_FLOOR,
     eye_check: bool = True,
+    candidate_margin: float = CANDIDATE_MARGIN,
+    max_candidates: int = 0,
 ) -> list[RankedPhoto]:
     # Faces without a person id can't be matched across frames, so each is its own person
     by_person: defaultdict[object, list[FaceScore]] = defaultdict(list)
@@ -59,4 +64,12 @@ def rank_burst(
     ranked.sort(key=lambda photo: (photo.eyes_open, photo.score), reverse=True)
     for rank, photo in enumerate(ranked, 1):
         photo.rank = rank
+
+    # Rank 1 always stays; others need open eyes and a score near the best
+    count = 0
+    for photo in ranked:
+        close = photo.eyes_open and photo.score >= candidate_margin
+        if photo.rank == 1 or (close and (max_candidates == 0 or count < max_candidates)):
+            photo.is_candidate = True
+            count += 1
     return ranked

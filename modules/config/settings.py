@@ -35,8 +35,17 @@ DEFAULT_SETTINGS = {
     "grouping": {"burst_gap_seconds": 5, "event_gap_minutes": 30},
     # Burst ranking: eyes are closed under eye_gate of the person's best EAR or under ear_floor,
     # and faces in two frames are the same person when their boxes overlap by face_match_iou.
-    # eye_check: false ranks on sharpness only, for posed eyes-down shots
-    "ranking": {"eye_gate": 0.6, "ear_floor": 0.15, "face_match_iou": 0.3, "eye_check": True},
+    # eye_check: false ranks on sharpness only, for posed eyes-down shots.
+    # Candidates: rank 1, plus eyes-open photos scoring at least candidate_margin of the best.
+    # max_candidates caps them per burst, 0 = no cap
+    "ranking": {
+        "eye_gate": 0.6,
+        "ear_floor": 0.15,
+        "face_match_iou": 0.3,
+        "eye_check": True,
+        "candidate_margin": 0.9,
+        "max_candidates": 0,
+    },
     # Which model or method each step uses
     "models": {"embedding": "Facenet512", "embedding_metric": "cosine", "sharpness": "laplacian"},
     # "cuda" or "cpu". Only YOLO uses it for now, DeepFace and MediaPipe pick their own device

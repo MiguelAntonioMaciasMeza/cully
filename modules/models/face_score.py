@@ -39,3 +39,4 @@ class RankedPhoto:
     score: float  # weakest face's sharpness relative to the burst's best, 0-1
     eyes_open: bool
     rank: int = 0  # 1 = best in burst
+    is_candidate: bool = False  # close enough to the best to keep, see rank_burst

@@ -57,6 +57,9 @@ class Catalog:
                 group_id TEXT,
                 culled_status TEXT,
                 final_score REAL,
+                burst_rank INTEGER,
+                eyes_open INTEGER,
+                is_candidate INTEGER,
                 capture_time TEXT,
                 camera_model TEXT,
                 x_resolution INTEGER,
@@ -65,6 +68,11 @@ class Catalog:
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
             """)
+        # Catalogs created before burst ranking was stored: add its columns
+        photo_columns = {row["name"] for row in self.cursor.execute("PRAGMA table_info(photos)")}
+        for column in ("burst_rank", "eyes_open", "is_candidate"):
+            if column not in photo_columns:
+                self.cursor.execute(f"ALTER TABLE photos ADD COLUMN {column} INTEGER")
         # capture_time is ISO 8601 text, so this index serves time-ordered scans per camera
         self.cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_photos_camera_time ON photos(camera_model, capture_time)"
@@ -654,8 +662,9 @@ class Catalog:
         return [FaceScore.from_sql_row(row) for row in results]
 
     def update_burst_ranking(self, ranked: list[RankedPhoto]):
-        """Saves each photo's score and marks the rank 1 photo as its burst's best. The burst is
-        found through photo_group_members, so replace_photo_groups must have run first."""
+        """Saves each photo's score, rank, eyes open and candidate flags, and marks the rank 1
+        photo as its burst's best. The burst is found through photo_group_members, so
+        replace_photo_groups must have run first."""
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
         if not ranked:
@@ -663,8 +672,14 @@ class Catalog:
         best = min(ranked, key=lambda photo: photo.rank)
         with self.catalog_connection:
             self.cursor.executemany(
-                "UPDATE photos SET final_score = ? WHERE image_hash = ?",
-                [(photo.score, photo.image_hash) for photo in ranked],
+                """
+                UPDATE photos SET final_score = ?, burst_rank = ?, eyes_open = ?, is_candidate = ?
+                WHERE image_hash = ?
+                """,
+                [
+                    (photo.score, photo.rank, photo.eyes_open, photo.is_candidate, photo.image_hash)
+                    for photo in ranked
+                ],
             )
             self.cursor.execute(
                 """
@@ -672,6 +687,18 @@ class Catalog:
                 WHERE id = (SELECT group_id FROM photo_group_members WHERE image_hash = ?)
                 """,
                 (best.image_hash, best.image_hash),
+            )
+
+    def clear_burst_ranking(self):
+        """Clears every photo's score, rank, eyes open and candidate flags before a new ranking."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        with self.catalog_connection:
+            self.cursor.execute(
+                """
+                UPDATE photos
+                SET final_score = NULL, burst_rank = NULL, eyes_open = NULL, is_candidate = NULL
+                """
             )
 
     def delete_orphan_face_boxes(self) -> int:

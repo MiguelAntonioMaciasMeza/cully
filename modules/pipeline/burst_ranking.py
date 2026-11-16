@@ -6,6 +6,7 @@ eye state and sharpness calculation
 Faces are matched across frames by box position (scoring/face_matching.py), not embeddings, and
 faces below the face_threshold setting are left out. Burst/event gaps come from the grouping
 setting, eye and matching values from the ranking setting (eye_check off ranks on sharpness only).
+Each photo's score, rank, eyes open flag and candidate flag are saved to the photos table.
 Run with venv-faces, pipeline/grouping.py imports scipy and deepface.
 Author: Miguel Macias
 Date: 2026-11-06
@@ -36,6 +37,8 @@ class BurstRankStep:
         )
         # Rankings are saved through the stored groups, so store these first
         self.catalog.replace_photo_groups(events)
+        # Photos that drop out of ranking on a rerun shouldn't keep old ranks
+        self.catalog.clear_burst_ranking()
 
         rankings = []
         for event in events:
@@ -49,7 +52,14 @@ class BurstRankStep:
                     continue
                 match_by_position(faces, hashes, ranking["face_match_iou"])
 
-                ranked = rank_burst(faces, ranking["eye_gate"], ranking["ear_floor"], bool(ranking["eye_check"]))
+                ranked = rank_burst(
+                    faces,
+                    ranking["eye_gate"],
+                    ranking["ear_floor"],
+                    bool(ranking["eye_check"]),
+                    ranking["candidate_margin"],
+                    int(ranking["max_candidates"]),
+                )
                 self.catalog.update_burst_ranking(ranked)
                 rankings.append(ranked)
         return rankings
