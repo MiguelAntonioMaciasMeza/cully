@@ -180,19 +180,31 @@ class Catalog:
                 f"[catalog.py]cursor/catalog_connection is not connected\nPath:{self.catalog_path}"
             )
             return
+        exif = photo.exif_data or {}
+
+        # Known photo: refresh path, camera and size, keep everything else
         if self._check_if_photo_exists(photo.image_hash) is True:
+            self.cursor.execute(
+                """UPDATE photos SET image_path = ?, camera_model = ?, x_resolution = ?, y_resolution = ?
+                WHERE image_hash = ?""",
+                (
+                    str(photo.path_to_photo),
+                    exif.get("camera_model"),
+                    exif.get("x_resolution"),
+                    exif.get("y_resolution"),
+                    photo.image_hash,
+                ),
+            )
+            self.catalog_connection.commit()
             if DEBUG:
-                print(
-                    "[catalog.py]Photo could not be inserted, already exists in catalog"
-                )
+                print("[catalog.py]Photo already in catalog, refreshed its EXIF fields")
             return
 
         # Photos without EXIF are still inserted (NULL fields) so foreign keys from other tables resolve
-        exif = photo.exif_data or {}
         capture_time = exif.get("datetime_original")
         self.cursor.execute(
-            """INSERT INTO photos (image_path, image_hash,capture_time, x_resolution, y_resolution)
-            VALUES (?,?,?,?,?)""",
+            """INSERT INTO photos (image_path, image_hash, capture_time, camera_model, x_resolution, y_resolution)
+            VALUES (?,?,?,?,?,?)""",
             (
                 str(photo.path_to_photo),
                 photo.image_hash,
@@ -202,6 +214,7 @@ class Catalog:
                     if isinstance(capture_time, datetime)
                     else None
                 ),
+                exif.get("camera_model"),
                 exif.get("x_resolution"),
                 exif.get("y_resolution"),
             ),
@@ -283,18 +296,18 @@ class Catalog:
 
     def _drop_table(self, table: str):
         if self.cursor is None or self.catalog_connection is None:
-            raise ValueError("[cataloy.py] cursor/catalog_connection is None")
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
         self.cursor.execute(
-            f"SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
+            "SELECT name FROM sqlite_master WHERE type = 'table' AND name = ?",
             (table,),
         )
-        result = self.cursor.fetchone() is not None
-        if result is None:
+        if self.cursor.fetchone() is None:
             if DEBUG:
-                print(f"Table:{table}, does not exists")
+                print(f"[catalog.py]Table:{table}, does not exist")
             return
         try:
-            self.cursor.execute(f"DROP TABLE ?", (table,))
+            # Table names can't be SQL parameters; the name was checked above
+            self.cursor.execute(f'DROP TABLE "{table}"')
             self.catalog_connection.commit()
             if DEBUG:
                 print(f"table {table} has been dropped")
@@ -515,17 +528,6 @@ class Catalog:
             "SELECT DISTINCT image_hash FROM face_landmarks"
         ).fetchall()
         return {row["image_hash"] for row in results}
-
-    def get_image_path_from_box_id(self, parent_id: int):
-        if self.cursor is None or self.catalog_connection is None:
-            raise ValueError("[catalog.py]cursor/catalog_connection is None")
-        image_hash = self.cursor.execute(
-            "SELECT image_hash FROM bounding_box WHERE id = (?)", (parent_id,)
-        ).fetchone()
-        result = self.cursor.execute(
-            "SELECT image_path FROM photos WHERE image_hash = (?)", (image_hash,)
-        ).fetchone()
-        return result
 
     def get_photo_path_and_hash_by_parent_box_id(
         self, parent_box_id: int

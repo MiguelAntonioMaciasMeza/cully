@@ -5,8 +5,6 @@ from pathlib import Path
 from datetime import datetime
 import logging
 from enum import Enum
-import pprint
-from dataclasses import dataclass,field
 from typing import cast
 import rawpy
 import cv2
@@ -27,7 +25,7 @@ class uot(Enum):
 
 class ExifReader:
     path: Path
-    image_exif: dict[str, str | int | None ] = field(default_factory=dict)
+    image_exif: dict[str, Any]
     date_time: datetime | None 
 
     def __init__(self, path: Path):
@@ -60,12 +58,14 @@ class ExifReader:
             if img.has_exif:
                 self._get_exif_data(img,"datetime_original")
                 self._get_exif_data(img,"subsec_time_original")
+                self.image_exif["camera_model"] = self._clean_model(img.get("model"))
         if DEBUG:
             print(f"[exif_reader.py]Reading: {path}")
         img = cv2.imread(str(path))
         if img is not None:
-            self.image_exif["x_resolution"] = img.shape[0]
-            self.image_exif["y_resolution"] = img.shape[1]
+            # OpenCV shape is (height, width)
+            self.image_exif["x_resolution"] = img.shape[1]
+            self.image_exif["y_resolution"] = img.shape[0]
 
     def _read_raw_exif(self, path: Path):
         with open(path, "rb") as f:
@@ -75,12 +75,21 @@ class ExifReader:
 
             self.image_exif["datetime_original"] = tags.get("EXIF DateTimeOriginal")
             self.image_exif["subsecond_original"] = str(tags.get("EXIF SubSecTimeOriginal"))
+            self.image_exif["camera_model"] = self._clean_model(tags.get("Image Model"))
             raw_img = rawpy.imread(str(path))
             if raw_img is not None:
                 img_sizes = raw_img.sizes
                 self.image_exif["x_resolution"] = img_sizes.crop_width
                 self.image_exif["y_resolution"] = img_sizes.crop_height
             
+    @staticmethod
+    def _clean_model(raw: Any) -> str | None:
+        """Camera model as trimmed text, None if missing."""
+        if raw is None:
+            return None
+        model = str(raw).strip(" \x00")
+        return model or None
+
     def _set_date_time(self):
         try:
             
