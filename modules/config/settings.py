@@ -2,6 +2,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
 import json
+import re
 
 
 # u2net takes in 320,320 images natively, however if we would like
@@ -50,8 +51,9 @@ DEFAULT_SETTINGS = {
     "models": {"embedding": "Facenet512", "embedding_metric": "cosine", "sharpness": "laplacian"},
     # "cuda" or "cpu". Only YOLO uses it for now, DeepFace and MediaPipe pick their own device
     "hardware": {"device": "cuda"},
-    # object_scale: images are shrunk by this before YOLO (no pipeline step uses it yet)
-    "detection": {"object_scale": 0.5},
+    # object_scale: images are shrunk by this before YOLO (used by ObjectStep)
+    # person_threshold: YOLO confidence for person boxes, other objects use object_threshold
+    "detection": {"object_scale": 0.5, "person_threshold": 50},
 }
 
 settings_path = Path.home() / ".config" / "cully" / "settings.json"
@@ -109,5 +111,18 @@ class Settings:
             with open(self.path, "w") as f:
                 json.dump(DEFAULT_SETTINGS, f, indent=4)
 
+        self._validate()
 
-Settings()
+    def _validate(self):
+        """Raises a clear error for values that would fail deep inside a model."""
+        device = str(self.hardware["device"])
+        if device not in ("cpu", "cuda") and not re.fullmatch(r"cuda:\d+", device):
+            raise ValueError(f"[settings.py] hardware.device must be 'cpu', 'cuda' or 'cuda:N', got {device!r}")
+        thresholds = {
+            "object_threshold": self.object_threshold,
+            "face_threshold": self.face_threshold,
+            "detection.person_threshold": self.detection["person_threshold"],
+        }
+        for name, value in thresholds.items():
+            if not 0 <= value <= 100:
+                raise ValueError(f"[settings.py] {name} must be between 0 and 100, got {value}")

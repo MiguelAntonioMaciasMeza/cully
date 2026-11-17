@@ -41,9 +41,16 @@ class Objects:
                 result.boxes.xyxy.tolist(),
             ):
                 confidence = float(confidence * 100)
+                cls_name = result.names[int(cls_id)]
+                # People get their own, lower threshold: a missed person hides their face from
+                # every later step, while a false one is dropped later by face detection
+                threshold = (
+                    self.settings.detection["person_threshold"]
+                    if cls_name == "person"
+                    else self.settings.object_threshold
+                )
 
-                if confidence >= self.settings.object_threshold:
-                    cls_name = result.names[int(cls_id)]
+                if confidence >= threshold:
                     box = BoundingBox(
                         confidence=round(confidence, 2),
                         model_version=self.settings.YOLOModel,
