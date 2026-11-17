@@ -5,12 +5,26 @@ Description: Runs the whole Cully pipeline on a folder: scan, objects, faces, la
 except sharpness and ranking, which redo the whole catalog.
 Run from Cully/modules with venv-main:
     python main.py <folder> [--catalog PATH] [--embeddings] [--steps scan,objects,...] [--progress]
+    [--progress-json]
 Author: Miguel Macias
 Date: 2026-11-16
 """
 
+import io
+import os
+import sys
+
+# With --progress-json, stdout carries JSON only: keep a copy of it, then point stdout at stderr so
+# prints, library chatter and C-level writes can't break the stream. Done before the heavy imports.
+JSON_OUT = None
+if "--progress-json" in sys.argv:
+    JSON_OUT = os.fdopen(os.dup(1), "w")
+    os.dup2(2, 1)
+    if isinstance(sys.stdout, io.TextIOWrapper):
+        sys.stdout.reconfigure(line_buffering=True)  # stderr-like, so log lines show up in order
+
 # triton has to be loaded before mediapipe or it segfaults (see tests/pipeline/pipeline_steps_test.py)
-import triton  # noqa: F401
+import triton  # noqa: F401, E402
 
 import argparse
 from pathlib import Path
@@ -26,6 +40,7 @@ from pipeline.faces import FaceStep
 from pipeline.landmarks import LandmarkStep
 from pipeline.sharpness import SharpnessStep
 from pipeline.burst_ranking import BurstRankStep
+from utils.progress import emit, use_json
 
 STEPS = ["scan", "objects", "faces", "landmarks", "embeddings", "sharpness", "ranking"]
 
@@ -37,6 +52,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--embeddings", action="store_true", help="also embed faces (ranking doesn't need it)")
     parser.add_argument("--steps", help=f"comma separated subset of: {','.join(STEPS)}")
     parser.add_argument("-p", "--progress", action="store_true", help="show a live progress line for each step")
+    parser.add_argument("--progress-json", action="store_true",
+                        help="write progress as JSON lines on stdout, everything else goes to stderr")
     args = parser.parse_args()
 
     if args.steps:
@@ -60,12 +77,15 @@ def main():
     catalog = Catalog(str(args.catalog)) if args.catalog else Catalog()
     print(f"[main.py] Catalog: {catalog.catalog_path}")
 
-    show = args.progress
+    if JSON_OUT is not None:
+        use_json(JSON_OUT)
+    show = args.progress or args.progress_json
     rankings = []
     for name in STEPS:
         if name not in args.steps:
             continue
         start = perf_counter()
+        emit("step_start", step=name)
         if show:
             # Model loading happens before the first photo, so say the step has started
             print(f"[main.py] {name}: starting", flush=True)
@@ -88,15 +108,21 @@ def main():
             case "ranking":
                 rankings = BurstRankStep(catalog, settings).run()
                 result = f"{len(rankings)} bursts ranked"
-        print(f"[main.py] {name}: {result} ({perf_counter() - start:.1f}s)")
+        seconds = perf_counter() - start
+        print(f"[main.py] {name}: {result} ({seconds:.1f}s)")
+        emit("step_end", step=name, result=result, seconds=round(seconds, 1))
 
     if "ranking" in args.steps:
         ranked = [photo for burst in rankings for photo in burst]
         total = len(catalog.get_all_hashes())
+        candidates = sum(p.is_candidate for p in ranked)
         print(
-            f"[main.py] Done: {len(rankings)} bursts, {sum(p.is_candidate for p in ranked)} candidates, "
+            f"[main.py] Done: {len(rankings)} bursts, {candidates} candidates, "
             f"{total - len(ranked)} of {total} photos unranked"
         )
+        emit("done", bursts=len(rankings), candidates=candidates, unranked=total - len(ranked))
+    else:
+        emit("done")
     catalog.close()
 
 
