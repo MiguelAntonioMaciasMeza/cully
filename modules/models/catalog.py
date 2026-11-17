@@ -16,6 +16,7 @@ from models.face_landmarks import FaceLandmarks
 from models.face_embeddings import FaceEmbeddings
 from models.photo_group import CapturedPhoto, Event
 from models.face_score import FaceScore, RankedPhoto
+from models.report_photo import ReportPhoto
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
@@ -181,6 +182,8 @@ class Catalog:
             )
             return
         exif = photo.exif_data or {}
+        # Stored absolute so the path works from any folder
+        image_path = str(photo.path_to_photo.resolve())
 
         # Known photo: refresh path, camera and size, keep everything else
         if self._check_if_photo_exists(photo.image_hash) is True:
@@ -188,7 +191,7 @@ class Catalog:
                 """UPDATE photos SET image_path = ?, camera_model = ?, x_resolution = ?, y_resolution = ?
                 WHERE image_hash = ?""",
                 (
-                    str(photo.path_to_photo),
+                    image_path,
                     exif.get("camera_model"),
                     exif.get("x_resolution"),
                     exif.get("y_resolution"),
@@ -206,7 +209,7 @@ class Catalog:
             """INSERT INTO photos (image_path, image_hash, capture_time, camera_model, x_resolution, y_resolution)
             VALUES (?,?,?,?,?,?)""",
             (
-                str(photo.path_to_photo),
+                image_path,
                 photo.image_hash,
                 # Only a parsed datetime is stored; anything else means the capture time is unknown
                 (
@@ -715,6 +718,34 @@ class Catalog:
                 self.cursor.execute(f"DELETE FROM {table} WHERE face_box_id IN ({orphans})")
             self.cursor.execute("DELETE FROM face_boxes WHERE parent_box_id IS NULL")
             return self.cursor.rowcount
+
+    def get_report_photos(self, min_face_confidence: float = 0) -> list[ReportPhoto]:
+        """Every photo with its event, burst, ranking flags and person/face counts, in event, burst
+        then rank order. Photos in no burst (no capture time) come last."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        rows = self.cursor.execute(
+            """
+            SELECT p.image_hash, p.image_path, p.camera_model, p.capture_time,
+                   p.final_score, p.burst_rank, p.eyes_open, p.is_candidate,
+                   g.id AS burst_id, g.start_time AS burst_start,
+                   e.id AS event_id, e.start_time AS event_start, e.end_time AS event_end,
+                   (SELECT count(*) FROM bounding_boxes b
+                    WHERE b.image_hash = p.image_hash AND b.name = 'person') AS persons,
+                   (SELECT count(*) FROM face_boxes f
+                    JOIN bounding_boxes b ON b.id = f.parent_box_id
+                    WHERE b.image_hash = p.image_hash AND f.name != 'No Faces Found'
+                      AND f.confidence >= ?) AS faces
+            FROM photos p
+            LEFT JOIN photo_group_members m ON m.image_hash = p.image_hash
+            LEFT JOIN photo_groups g ON g.id = m.group_id AND g.kind = 'burst'
+            LEFT JOIN photo_groups e ON e.id = g.parent_id
+            ORDER BY e.start_time IS NULL, e.start_time, g.start_time, p.burst_rank IS NULL, p.burst_rank,
+                     m.position, p.capture_time
+            """,
+            (min_face_confidence,),
+        ).fetchall()
+        return [ReportPhoto.from_sql_row(row) for row in rows]
 
     def close(self):
         if self.catalog_connection:
