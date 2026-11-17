@@ -17,6 +17,7 @@ from models.face_embeddings import FaceEmbeddings
 from models.photo_group import CapturedPhoto, Event
 from models.face_score import FaceScore, RankedPhoto
 from models.report_photo import ReportPhoto
+from models.photo_face import PhotoFace
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
@@ -43,12 +44,12 @@ class Catalog:
         self.catalog_connection = sqlite3.connect(self.catalog_path)
         self.catalog_connection.row_factory = sqlite3.Row
         self.cursor = self.catalog_connection.cursor()
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
 
-        if not self.catalog_connection:
-            raise ValueError("[catalog.py]catalog_connect is requied")
-        if not self.cursor:
-            raise ValueError("[catalog.py]cursor is required")
         self.cursor.execute("PRAGMA foreign_keys = ON")
+        self.cursor.execute("PRAGMA journal_mode = WAL")
+        self.cursor.execute("PRAGMA busy_timeout = 3000")
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS photos (
                 id INTEGER PRIMARY KEY,
@@ -70,7 +71,9 @@ class Catalog:
             )
             """)
         # Catalogs created before burst ranking was stored: add its columns
-        photo_columns = {row["name"] for row in self.cursor.execute("PRAGMA table_info(photos)")}
+        photo_columns = {
+            row["name"] for row in self.cursor.execute("PRAGMA table_info(photos)")
+        }
         for column in ("burst_rank", "eyes_open", "is_candidate"):
             if column not in photo_columns:
                 self.cursor.execute(f"ALTER TABLE photos ADD COLUMN {column} INTEGER")
@@ -103,6 +106,13 @@ class Catalog:
                 FOREIGN KEY (parent_box_id) REFERENCES bounding_boxes(id)
                 )
                 """)
+        # The report and face lookups join on these columns
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_bounding_boxes_hash ON bounding_boxes(image_hash)"
+        )
+        self.cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_face_boxes_parent ON face_boxes(parent_box_id)"
+        )
         self.cursor.execute("""
             CREATE TABLE IF NOT EXISTS face_landmarks(
             face_box_id INTEGER PRIMARY KEY,
@@ -478,7 +488,9 @@ class Catalog:
         for index, box in enumerate(results):
             # A box without a person box can't be traced to its photo, so skip it rather than every box
             if box["parent_box_id"] is None:
-                print(f"[catalog.py] Skipping face box {box['id']}, it has no parent person box")
+                print(
+                    f"[catalog.py] Skipping face box {box['id']}, it has no parent person box"
+                )
                 continue
             boxes[self._get_hash_from_bounding_box_id(box["parent_box_id"])].append(
                 BoundingBox.from_sql_row(box)
@@ -682,7 +694,13 @@ class Catalog:
                 WHERE image_hash = ?
                 """,
                 [
-                    (photo.score, photo.rank, photo.eyes_open, photo.is_candidate, photo.image_hash)
+                    (
+                        photo.score,
+                        photo.rank,
+                        photo.eyes_open,
+                        photo.is_candidate,
+                        photo.image_hash,
+                    )
                     for photo in ranked
                 ],
             )
@@ -699,12 +717,10 @@ class Catalog:
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
         with self.catalog_connection:
-            self.cursor.execute(
-                """
+            self.cursor.execute("""
                 UPDATE photos
                 SET final_score = NULL, burst_rank = NULL, eyes_open = NULL, is_candidate = NULL
-                """
-            )
+                """)
 
     def delete_orphan_face_boxes(self) -> int:
         """Deletes face boxes with no parent person box, plus anything stored on them. Returns how
@@ -715,7 +731,9 @@ class Catalog:
         with self.catalog_connection:
             # Children first, the foreign keys point at face_boxes
             for table in ("face_embeddings", "face_landmarks", "face_scores"):
-                self.cursor.execute(f"DELETE FROM {table} WHERE face_box_id IN ({orphans})")
+                self.cursor.execute(
+                    f"DELETE FROM {table} WHERE face_box_id IN ({orphans})"
+                )
             self.cursor.execute("DELETE FROM face_boxes WHERE parent_box_id IS NULL")
             return self.cursor.rowcount
 
@@ -726,7 +744,7 @@ class Catalog:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
         rows = self.cursor.execute(
             """
-            SELECT p.image_hash, p.image_path, p.camera_model, p.capture_time,
+            SELECT p.image_hash, p.image_path, p.camera_model, p.capture_time, p.culled_status,
                    p.final_score, p.burst_rank, p.eyes_open, p.is_candidate,
                    g.id AS burst_id, g.start_time AS burst_start,
                    e.id AS event_id, e.start_time AS event_start, e.end_time AS event_end,
@@ -746,6 +764,46 @@ class Catalog:
             (min_face_confidence,),
         ).fetchall()
         return [ReportPhoto.from_sql_row(row) for row in rows]
+
+    def get_faces_for_photo(
+        self, image_hash: str, method: str = "laplacian", min_confidence: float = 0
+    ) -> list[PhotoFace]:
+        """Real faces in one photo with their sharpness (by method) and EAR, left to right."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        rows = self.cursor.execute(
+            """
+            SELECT f.id, f.x1, f.y1, f.x2, f.y2, f.confidence,
+                   s.score AS sharpness, l.ear_left, l.ear_right
+            FROM face_boxes f
+            JOIN bounding_boxes b ON b.id = f.parent_box_id
+            LEFT JOIN face_scores s ON s.face_box_id = f.id AND s.method = ?
+            LEFT JOIN face_landmarks l ON l.face_box_id = f.id
+            WHERE b.image_hash = ? AND f.name != 'No Faces Found' AND f.confidence >= ?
+            ORDER BY f.x1
+            """,
+            (method, image_hash, min_confidence),
+        ).fetchall()
+        return [PhotoFace.from_sql_row(row) for row in rows]
+
+    def set_culled_status(self, image_hash: str, status: str | None ) -> bool:
+        """Sets culled status of an image"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog connection is None")
+        valid_status = {"keep", "reject", None}
+        if status not in valid_status:
+            raise ValueError(
+                f"[catalog.py]set_culled_status recieved invalid status: {status}"
+            )
+        if not self._check_if_photo_exists(image_hash):
+            return False
+
+        self.cursor.execute(
+            "UPDATE photos SET culled_status = ? WHERE image_hash = ? ",
+            (status, image_hash),
+        )
+        self.catalog_connection.commit()
+        return True
 
     def close(self):
         if self.catalog_connection:

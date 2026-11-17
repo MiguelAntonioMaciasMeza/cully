@@ -27,7 +27,7 @@ class ReportPhoto:
     is_candidate: bool
     persons: int  # YOLO person boxes
     faces: int  # real face boxes at or above the face threshold
-
+    culled_status: str | None
     @property
     def unranked_reason(self) -> str | None:
         """Short reason the photo has no rank, None if it is ranked."""
@@ -59,4 +59,5 @@ class ReportPhoto:
             bool(row["is_candidate"]),
             row["persons"],
             row["faces"],
+            row["culled_status"]
         )
