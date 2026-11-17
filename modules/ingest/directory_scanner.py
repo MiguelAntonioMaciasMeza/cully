@@ -9,6 +9,7 @@ from ingest.exif_reader import SUPPORTED_SUFFIXES
 from models.photo import Photo
 from models.catalog import Catalog
 from pathlib import Path
+from utils.progress import track
 
 from dataclasses import dataclass, field
 
@@ -20,12 +21,11 @@ class DirectoryScanner:
     def __init__(self, catalog: Catalog):
         self.catalog = catalog
 
-    def scan(self, directory: Path) -> list[Photo]:
+    def scan(self, directory: Path, show_progress: bool = False) -> list[Photo]:
         """Adds supported photos in directory to the catalog and returns them."""
         photos: list[Photo] = []
-        for path in sorted(directory.iterdir()):
-            if path.suffix.lower() not in SUPPORTED_SUFFIXES:
-                continue
+        paths = [p for p in sorted(directory.iterdir()) if p.suffix.lower() in SUPPORTED_SUFFIXES]
+        for path in track(paths, "scan", show_progress, describe=lambda p: p.name):
             photo = Photo(path)
             self.catalog.insert_photo(photo)
             photos.append(photo)

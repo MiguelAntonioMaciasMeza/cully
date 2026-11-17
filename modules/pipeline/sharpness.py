@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 from config.settings import Settings
 from models.catalog import Catalog
 from scoring.laplacian import laplacian_sharpness
+from utils.progress import file_name, track
 import cv2
 
 
@@ -17,6 +18,7 @@ import cv2
 class SharpnessStep:
     catalog: Catalog = field(default_factory=Catalog)
     settings: Settings = field(default_factory=Settings)
+    show_progress: bool = False  # redraw a progress line while running
 
     def run(self, method: str | None = None):
         method = method or self.settings.models["sharpness"]
@@ -30,7 +32,8 @@ class SharpnessStep:
                 "[sharpness.py] get_face_boxes_with_hash returned back None, check catalog DB."
             )
 
-        for image_hash, boxes in boxes_by_hash.items():
+        for image_hash, boxes in track(boxes_by_hash.items(), "sharpness", self.show_progress,
+                                   describe=lambda item: file_name(self.catalog.get_photo_path_by_hash(item[0]))):
             path = self.catalog.get_photo_path_by_hash(image_hash)
             if path is None:
                 raise ValueError(
