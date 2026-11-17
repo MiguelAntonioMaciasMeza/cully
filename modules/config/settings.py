@@ -1,6 +1,7 @@
 from pathlib import Path
 from dataclasses import dataclass, field
 from enum import Enum
+import copy
 import json
 import re
 
@@ -59,6 +60,15 @@ DEFAULT_SETTINGS = {
 settings_path = Path.home() / ".config" / "cully" / "settings.json"
 
 
+#Only really needed for issues such as 3.0 -> 3, etc
+def _checked(value,default):
+    """Returns value as same type enforcing original type cast"""
+    if type(default) is float and type(value) is int:
+        return float(value)
+    if type(value) is not type(default):
+        raise TypeError(f"expected type {type(type(default).__name__)}, got {value}")
+
+    return value
 @dataclass
 class Settings:
     path: Path = settings_path
@@ -104,12 +114,10 @@ class Settings:
 
             # Save updated settings
             if updated:
-                with open(self.path, "w") as f:
-                    json.dump(settings, f, indent=4)
+                self.save()
 
         else:
-            with open(self.path, "w") as f:
-                json.dump(DEFAULT_SETTINGS, f, indent=4)
+            self.save()
 
         self._validate()
 
@@ -118,11 +126,64 @@ class Settings:
         device = str(self.hardware["device"])
         if device not in ("cpu", "cuda") and not re.fullmatch(r"cuda:\d+", device):
             raise ValueError(f"[settings.py] hardware.device must be 'cpu', 'cuda' or 'cuda:N', got {device!r}")
+        #Detection thresholds 
         thresholds = {
             "object_threshold": self.object_threshold,
             "face_threshold": self.face_threshold,
             "detection.person_threshold": self.detection["person_threshold"],
         }
-        for name, value in thresholds.items():
+        for setting, value in thresholds.items():
             if not 0 <= value <= 100:
-                raise ValueError(f"[settings.py] {name} must be between 0 and 100, got {value}")
+                raise ValueError(f"[settings.py] {setting} must be between 0 and 100, got {value}")
+        # Ranking ratios, between 0 and 1
+        fractions = {
+            "ranking.eye_gate": self.ranking["eye_gate"],
+            "ranking.ear_floor": self.ranking["ear_floor"],
+            "ranking.face_match_iou": self.ranking["face_match_iou"],
+            "ranking.candidate_margin": self.ranking["candidate_margin"],
+        }
+
+        for setting,value in fractions.items():
+            if not 0 <= value <= 1:
+                raise ValueError(f"[settings.py]{setting} must be between 0 and 1, got {value}")
+
+        for setting, value in self.grouping.items():
+            if value <= 0:
+                raise ValueError(f"[setting.spy]{setting} must be above 0, got {value}")
+        if self.ranking["max_candidates"] < 0:
+            raise ValueError(f"[settings.py]max_candidates must be 0 or more")
+        if not 0 < self.detection["object_scale"] <= 1:
+            raise ValueError(f"[settings.py]object scale must above 0 and no more than 1")
+    
+    def to_dict(self) -> dict:
+        """Returns back settings in a dict structure, excludes file path to settings"""
+        
+        exclude = {"path"}
+        settings_dict = {key:copy.deepcopy(getattr(self,key)) for key in DEFAULT_SETTINGS if key not in exclude}
+        return settings_dict
+
+
+    def update(self, values:dict) -> None:
+        before = self.to_dict()
+        try:
+            for key,value in values.items():
+                default = DEFAULT_SETTINGS[key]
+                if isinstance(default, dict):
+                    for sub_key, sub_value in value.items():
+                        getattr(self,key)[sub_key] = _checked(sub_value, default[sub_key])
+                else:
+                    setattr(self, key, _checked(value,default))
+
+            self._validate()
+        except(KeyError, AttributeError, TypeError, ValueError) as e:
+            #Reset setting back to previous one
+            for key,value in before.items():
+                setattr(self, key,value)
+            raise ValueError(f"[settings.py] Bad setting, nothing was changed: {e}") from e
+
+    def save(self) -> None:
+        tmp = self.path.with_suffix(".tmp")
+        with open(tmp, "w") as f:
+            json.dump(self.to_dict(),f, indent=4)
+        
+        tmp.replace(self.path)
