@@ -20,11 +20,13 @@ class DirectoryScanner:
     def __init__(self, catalog: Catalog):
         self.catalog = catalog
 
-    def scan(self, directory: Path):
-        photos = list()
+    def scan(self, directory: Path) -> list[Photo]:
+        """Adds supported photos in directory to the catalog and returns them."""
+        photos: list[Photo] = []
         for path in sorted(directory.iterdir()):
             if path.suffix.lower() not in SUPPORTED_SUFFIXES:
                 continue
             photo = Photo(path)
             self.catalog.insert_photo(photo)
-            photos.append(photos)
+            photos.append(photo)
+        return photos

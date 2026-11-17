@@ -37,7 +37,7 @@ class Photo:
 
     def set_objects(self, objects: defaultdict | None):
         if objects is None:
-            print(f"Image {Path.stem} had no objects detected.")
+            print(f"[photo.py]Image {self.path_to_photo.stem} had no objects detected.")
             return
 
         self.objects = objects

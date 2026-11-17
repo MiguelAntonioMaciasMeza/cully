@@ -19,12 +19,11 @@ class Config:
     catalog_path: str
 
     def __init__(self):
-        self.config_path = Path(user_config_dir("cully") + "/config.json")
+        self.config_path = Path(user_config_dir("cully")) / "config.json"
         self.input_path = self._load_config("input_path")
         self.output_path = self._load_config("output_path")
         self.models_path = self._load_config("models_path")
         self.catalog_path = self._load_config("catalog_path")
-        print(self.input_path)
 
     def _load_config(self, config: str):
         """Retrieves config.json in .config and loads the settings
@@ -64,10 +63,9 @@ class Config:
             
     """
 
-    def update_cofig(self, config, value):
-        self.config_path = Path.home() / ".config" / "cully" / "config.json"
-        # Create directory if config director doesn't exists
-        Path(self.config_path.parent).mkdir(parents=True, exist_ok=True)
+    def update_config(self, config, value):
+        # Create directory if config directory doesn't exist
+        self.config_path.parent.mkdir(parents=True, exist_ok=True)
         if self.config_path.exists():
             with open(self.config_path, "r") as f:
                 config_file = json.load(f)

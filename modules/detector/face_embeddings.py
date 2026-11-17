@@ -21,7 +21,7 @@ for gpu in tf.config.list_physical_devices("GPU"):
 
 
 @dataclass
-class FaceEmbeddings:
+class FaceEmbedder:
     # model_name and metric come from the "models" setting unless given here
     model_name: str = ""
     metric: str = ""
