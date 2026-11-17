@@ -1,0 +1,34 @@
+"""
+File: Cully/modules/utils/make_thumbnail.py
+Description: util module that allows us to make a thumbnail for report. Really usefull
+as most modern cameras taken images that are 20+ megapixels 
+Author: Miguel Macias
+Date: 2026-11-16
+"""
+from pathlib import Path
+import numpy as np
+import cv2
+
+
+def make_thumbnail(source: Path, target: Path, size:int=360) -> bool:
+    """Writes a small JPEG of source to target. Returns False if source can't be read."""
+    if target.exists():
+        return True
+    if not source.is_file():
+        return False
+    img: np.ndarray | None
+    if source.suffix.lower() == ".cr2":
+        import rawpy  # only needed for RAW files
+
+        with rawpy.imread(str(source)) as raw:
+            img = cv2.cvtColor(raw.postprocess(half_size=True), cv2.COLOR_RGB2BGR)
+    else:
+        # Decode at 1/4 size, the photos are far bigger than a thumbnail
+        img = cv2.imread(str(source), cv2.IMREAD_REDUCED_COLOR_4)
+    if img is None:
+        return False
+    h, w = img.shape[:2]
+    scale = size / max(h, w)
+    if scale < 1:
+        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
+    return cv2.imwrite(str(target), img, [cv2.IMWRITE_JPEG_QUALITY, 85])

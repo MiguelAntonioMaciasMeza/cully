@@ -16,40 +16,12 @@ from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
-import cv2
-import numpy as np
 
+from utils.make_thumbnail import make_thumbnail
 from config.config import Config
 from config.settings import Settings
 from models.catalog import Catalog
 from models.report_photo import ReportPhoto
-
-THUMB_SIZE = 360  # longest side in pixels
-
-
-def make_thumbnail(source: Path, target: Path) -> bool:
-    """Writes a small JPEG of source to target. Returns False if source can't be read."""
-    if target.exists():
-        return True
-    if not source.is_file():
-        return False
-    img: np.ndarray | None
-    if source.suffix.lower() == ".cr2":
-        import rawpy  # only needed for RAW files
-
-        with rawpy.imread(str(source)) as raw:
-            img = cv2.cvtColor(raw.postprocess(half_size=True), cv2.COLOR_RGB2BGR)
-    else:
-        # Decode at 1/4 size, the photos are far bigger than a thumbnail
-        img = cv2.imread(str(source), cv2.IMREAD_REDUCED_COLOR_4)
-    if img is None:
-        return False
-    h, w = img.shape[:2]
-    scale = THUMB_SIZE / max(h, w)
-    if scale < 1:
-        img = cv2.resize(img, (int(w * scale), int(h * scale)), interpolation=cv2.INTER_AREA)
-    return cv2.imwrite(str(target), img, [cv2.IMWRITE_JPEG_QUALITY, 85])
-
 
 def short_time(iso: str | None) -> str:
     if iso is None:
