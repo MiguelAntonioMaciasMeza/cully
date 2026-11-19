@@ -745,7 +745,7 @@ class Catalog:
         rows = self.cursor.execute(
             """
             SELECT p.image_hash, p.image_path, p.camera_model, p.capture_time, p.culled_status,
-                   p.final_score, p.burst_rank, p.eyes_open, p.is_candidate,
+                   p.final_score, p.burst_rank, p.eyes_open, p.is_candidate, p.x_resolution AS width, p.y_resolution AS height,
                    g.id AS burst_id, g.start_time AS burst_start,
                    e.id AS event_id, e.start_time AS event_start, e.end_time AS event_end,
                    (SELECT count(*) FROM bounding_boxes b
@@ -786,7 +786,27 @@ class Catalog:
         ).fetchall()
         return [PhotoFace.from_sql_row(row) for row in rows]
 
-    def set_culled_status(self, image_hash: str, status: str | None ) -> bool:
+    def get_face_box_with_path(
+        self, face_box_id: int
+    ) -> tuple[str, tuple[int, int, int, int]] | None:
+        """Photo path and (x1, y1, x2, y2) of one real face box, None if there is no such face."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        row = self.cursor.execute(
+            """
+            SELECT p.image_path, f.x1, f.y1, f.x2, f.y2
+            FROM face_boxes f
+            JOIN bounding_boxes b ON b.id = f.parent_box_id
+            JOIN photos p ON p.image_hash = b.image_hash
+            WHERE f.id = ? AND f.name != 'No Faces Found'
+            """,
+            (face_box_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        return row["image_path"], (row["x1"], row["y1"], row["x2"], row["y2"])
+
+    def set_culled_status(self, image_hash: str, status: str | None) -> bool:
         """Sets culled status of an image"""
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog connection is None")

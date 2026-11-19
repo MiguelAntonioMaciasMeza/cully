@@ -12,7 +12,6 @@ Date: 2026-11-16
 import argparse
 import html
 import webbrowser
-from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +21,8 @@ from config.config import Config
 from config.settings import Settings
 from models.catalog import Catalog
 from models.report_photo import ReportPhoto
+from models.results import BurstResult, EventResult
+from utils.results import group_results
 
 def short_time(iso: str | None) -> str:
     if iso is None:
@@ -82,11 +83,11 @@ def lane(kind: str, label: str, photos: list[ReportPhoto], thumbs_ok: set[str]) 
         </div>"""
 
 
-def burst_block(number: int, photos: list[ReportPhoto], thumbs_ok: set[str]) -> str:
+def burst_block(burst: BurstResult, thumbs_ok: set[str]) -> str:
     """One burst: candidates first, the rest alongside, then unranked."""
-    candidates = [p for p in photos if p.is_candidate]
-    rest = [p for p in photos if p.rank is not None and not p.is_candidate]
-    unranked = [p for p in photos if p.rank is None]
+    candidates = burst.candidates
+    rest = burst.rest
+    unranked = burst.unranked
     status = plural(len(candidates), "candidate") if candidates else "not ranked"
     lanes = (
         lane("keep", "Keep", candidates, thumbs_ok)
@@ -95,76 +96,67 @@ def burst_block(number: int, photos: list[ReportPhoto], thumbs_ok: set[str]) -> 
     )
     return f"""
       <section class="burst{' has-candidate' if candidates else ''}">
-        <header><h3>Burst {number}</h3>
-          <span class="meta">{short_time(photos[0].burst_start)[11:]} · {plural(len(photos), "photo")} · {status}</span></header>
+        <header><h3>Burst {burst.number}</h3>
+          <span class="meta">{short_time(burst.photos[0].burst_start)[11:]} · {plural(len(burst.photos), "photo")} · {status}</span></header>
         <div class="lanes">{lanes}
         </div>
       </section>"""
 
 
-def group_by(photos: list[ReportPhoto], key) -> dict:
-    """Groups photos by key, keeping their order."""
-    groups: dict = defaultdict(list)
-    for photo in photos:
-        groups[key(photo)].append(photo)
-    return groups
+def event_section(title: str, meta: str, blocks: list[str], has_candidate: bool) -> str:
+    """Returns back the outer html shared by events and the loose photos"""
+    return f"""
+    <section class="event{' has-candidate' if has_candidate else ''}">
+      <header class="event-head"><h2>{title}</h2><span class="meta">{meta}</span></header>
+      <div class="bursts">{''.join(blocks)}
+      </div>
+    </section>"""
 
 
-def event_block(number: int | None, photos: list[ReportPhoto], thumbs_ok: set[str], first_burst: int) -> tuple[str, int]:
-    """One event with its bursts. Returns the html and the next burst number."""
-    bursts = group_by(photos, lambda p: p.burst_id)
-    blocks = []
-    for offset, burst_photos in enumerate(bursts.values()):
-        blocks.append(burst_block(first_burst + offset, burst_photos, thumbs_ok))
-    n_cand = sum(p.is_candidate for p in photos)
-    if number is None:
-        title = "No capture time"
-        meta = f"{plural(len(photos), 'photo')} · can't be grouped into bursts"
-        # No bursts here, so show them as one unranked group
-        blocks = [f"""
+def event_block(event: EventResult, thumbs_ok: set[str]) -> str:
+    """Returns back one event with all of its bursts"""
+    blocks = [burst_block(burst, thumbs_ok) for burst in event.bursts]
+    start, end = short_time(event.start), short_time(event.end)
+
+    #Only show the date once if the event starts and ends on the same day
+    if start == end:
+        span = start
+    elif start[:10] == end[:10]:
+        span = f"{start} – {end[11:]}"
+    else:
+        span = f"{start} – {end}"
+
+    meta = (f"{span} · {html.escape(event.camera or 'unknown camera')} · "
+            f"{plural(len(event.bursts), 'burst')} · {plural(len(event.photos), 'photo')} · "
+            f"{plural(event.candidate_count, 'candidate')}")
+    return event_section(f"Event {event.number}", meta, blocks, event.candidate_count > 0)
+
+
+def loose_block(photos: list[ReportPhoto], thumbs_ok: set[str]) -> str:
+    """Returns back the photos with no capture time as one unranked group"""
+    meta = f"{plural(len(photos), 'photo')} · can't be grouped into bursts"
+    blocks = [f"""
       <section class="burst">
         <div class="lanes">{lane("unranked", "Unranked", photos, thumbs_ok)}
         </div>
       </section>"""]
-    else:
-        first = photos[0]
-        start, end = short_time(first.event_start), short_time(first.event_end)
-        if start == end:
-            span = start
-        elif start[:10] == end[:10]:
-            span = f"{start} – {end[11:]}"
-        else:
-            span = f"{start} – {end}"
-        meta = (f"{span} · {html.escape(first.camera_model or 'unknown camera')} · "
-                f"{plural(len(bursts), 'burst')} · {plural(len(photos), 'photo')} · {plural(n_cand, 'candidate')}")
-        title = f"Event {number}"
-    return f"""
-    <section class="event{' has-candidate' if n_cand else ''}">
-      <header class="event-head"><h2>{title}</h2><span class="meta">{meta}</span></header>
-      <div class="bursts">{''.join(blocks)}
-      </div>
-    </section>""", first_burst + len(bursts)
+    has_candidate = any(p.is_candidate for p in photos)
+    return event_section("No capture time", meta, blocks, has_candidate)
 
 
 def build_html(photos: list[ReportPhoto], thumbs_ok: set[str], catalog_path: str) -> str:
-    events = group_by(photos, lambda p: p.event_id)  # already in event, burst, rank order
+    events, loose = group_results(photos)
 
     ranked = [p for p in photos if p.rank is not None]
     candidates = sum(p.is_candidate for p in photos)
     closed = sum(p.eyes_open is False for p in ranked)
-    n_events = sum(1 for key in events if key is not None)
-    n_bursts = len({p.burst_id for p in photos if p.burst_id is not None})
+    n_events = len(events)
+    n_bursts = sum(len(event.bursts) for event in events)
 
-    sections = []
-    burst_number = 1
-    event_number = 1
-    for event_id, group in events.items():
-        if event_id is None:
-            block, _ = event_block(None, group, thumbs_ok, 0)
-        else:
-            block, burst_number = event_block(event_number, group, thumbs_ok, burst_number)
-            event_number += 1
-        sections.append(block)
+    #Loose photos always go last
+    sections = [event_block(event, thumbs_ok) for event in events]
+    if loose:
+        sections.append(loose_block(loose, thumbs_ok))
 
     generated = datetime.now().strftime("%Y-%m-%d %H:%M")
     return f"""<!doctype html>
