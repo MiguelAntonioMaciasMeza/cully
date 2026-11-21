@@ -41,8 +41,8 @@ class EventResult:
     id: int
     number: int 
     start: str | None
-    end: str | None = field(default_factory=str)
-    camera: str | None = field(default_factory=str)
+    end: str | None = None
+    camera: str | None = None
     bursts: list[BurstResult] = field(default_factory=list)
 
     @property

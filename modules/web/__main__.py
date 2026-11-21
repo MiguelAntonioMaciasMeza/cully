@@ -10,6 +10,7 @@ Date: 2026-11-20
 import argparse
 import ipaddress
 import threading
+from pathlib import Path
 
 from report import open_in_browser
 from web.app import create_app
@@ -46,13 +47,13 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--port",
-        help="Port to listen on, default:{DEFAULT_PORT}",
+        help=f"Port to listen on, default:{DEFAULT_PORT}",
         type=int,
         default=DEFAULT_PORT,
     )
     parser.add_argument(
         "--allow-remote",
-        help="Set if you want an outside machine can communicate with these ports",
+        help="Set if you want other machines on your network to reach the server",
         action="store_true",
     )
     parser.add_argument(
@@ -71,12 +72,16 @@ def main():
     local = is_local(args.host)
     if not local and not args.allow_remote:
         parser.error(
-            f"[web/__main__.py]You've given a non-local ip: ({args.host}).  Add --allow-remote"
+            f"[web/__main__.py]You've given a non-local ip: ({args.host}). Add --allow-remote"
         )
     elif not local and args.allow_remote:
         print(
             "[web/__main__.py]WARNING: Anyone on this network can see your images, proceed with caution."
         )
+
+    #Catalog() would make a new empty file for a mistyped path, so stop here instead
+    if args.catalog is not None and not Path(args.catalog).is_file():
+        parser.error(f"[web/__main__.py]No catalog file at {args.catalog}")
 
     app = create_app(catalog_path=args.catalog)
     print(f"[web/__main__.py]Serving {args.catalog or 'the default catalog'} at http://{args.host}:{args.port}/")

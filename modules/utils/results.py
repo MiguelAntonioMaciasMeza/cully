@@ -1,6 +1,6 @@
 """
 File: Cully/modules/utils/results.py
-Description: Any tool that helps results ro make a report will be placed here
+Description: Any tool that helps results to make a report will be placed here
 Author: Miguel Macias
 Date: 2026-11-17
 """
@@ -9,17 +9,8 @@ from models.results import EventResult, BurstResult
 
 def group_results(photos: list[ReportPhoto]) -> tuple[list[EventResult], list[ReportPhoto]]:
     """Groups events with their respective Bursts. Returns everything including photos that are not tied
-     to an event at the end of the tuple 
+     to an event at the end of the tuple
      """
-    
-    """Event fields we need:
-        Start:
-        End:
-        Camera:
-
-        Burst fields we need:
-        Start:
-    """
     counter = 1
     event_list = list()
     loose = list()
