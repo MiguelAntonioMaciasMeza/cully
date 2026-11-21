@@ -825,6 +825,38 @@ class Catalog:
         self.catalog_connection.commit()
         return True
 
+    def accept_burst(self, burst_id: int) -> tuple[int, int] | None:
+        """Marks a burst's candidates keep and its other ranked photos reject. Returns (kept, rejected), None if no such burst."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+
+        with self.catalog_connection:
+            row = self.cursor.execute("SELECT 1 FROM photo_groups WHERE id = ? AND kind = 'burst'",(burst_id,),).fetchone()
+            if row is None:
+                return None
+
+            self.cursor.execute(
+                """
+            UPDATE photos SET culled_status = 'keep' 
+            WHERE image_hash IN (SELECT image_hash FROM photo_group_members 
+            WHERE group_id = ?) 
+            AND culled_status IS NULL 
+            AND burst_rank IS NOT NULL 
+            AND is_candidate = 1 
+            """, 
+            (burst_id,),)
+
+            kept = self.cursor.rowcount
+            self.cursor.execute(""" 
+                UPDATE photos SET culled_status = 'reject'
+                WHERE image_hash IN (SELECT image_hash FROM photo_group_members WHERE group_id = ?)
+                    AND culled_status IS NULL
+                    AND burst_rank IS NOT NULL
+                    AND is_candidate IS NOT 1
+                    """, (burst_id,),)
+            rejected = self.cursor.rowcount
+            return kept, rejected
+
     def close(self):
         if self.catalog_connection:
             self.catalog_connection.close()

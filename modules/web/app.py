@@ -10,15 +10,19 @@ Date: 2026-11-17
 import re
 from pathlib import Path
 
-from flask import Flask, abort, g, jsonify, request, send_file
+from flask import Flask, abort, g, jsonify, render_template, request, send_file
 from platformdirs import user_cache_dir
 from werkzeug.exceptions import HTTPException
 
 from config.settings import Settings
 from models.catalog import Catalog
+from models.report_photo import ReportPhoto
+from models.results import EventResult
+from utils.results import group_results
 from web.images import cached_face, cached_resize
 
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
+VALID_STATUS = ["keep", "reject", None]
 THUMB_SIZE = 360
 PREVIEW_SIZE = 2000
 # Personal photos: browsers may keep them, shared caches and proxies may not
@@ -61,7 +65,9 @@ def json_body() -> dict:
 
 def _image_response(path: Path | None, source: str):
     if path is None:
-        abort(404, description=f"File not found: {Path(source).name}. Rescan its folder.")
+        abort(
+            404, description=f"File not found: {Path(source).name}. Rescan its folder."
+        )
     response = send_file(path, mimetype="image/jpeg")
     response.headers["Cache-Control"] = IMAGE_CACHE_CONTROL
     return response
@@ -120,7 +126,9 @@ def create_app(
     def preview(image_hash: str):
         source = require_photo(image_hash)
         target = app.config["CACHE_DIR"] / "previews" / f"{image_hash}.jpg"
-        return _image_response(cached_resize(Path(source), target, PREVIEW_SIZE), source)
+        return _image_response(
+            cached_resize(Path(source), target, PREVIEW_SIZE), source
+        )
 
     @app.get("/face/<int:face_box_id>")
     def face(face_box_id: int):
@@ -135,13 +143,155 @@ def create_app(
     return app
 
 
+def photo_json(photo: ReportPhoto) -> dict:
+    """One photo as the page needs it."""
+    return {
+        "hash": photo.image_hash,
+        "name": Path(photo.image_path).name,
+        "rank": photo.rank,
+        "score": photo.score,
+        "eyes_open": photo.eyes_open,
+        "is_candidate": photo.is_candidate,
+        "unranked_reason": photo.unranked_reason,
+        "culled_status": photo.culled_status,
+        "width": photo.width,
+        "height": photo.height,
+    }
+
+
+def event_json(event: EventResult) -> dict:
+    """One event with its bursts and their photos."""
+    return {
+        "id": event.id,
+        "number": event.number,
+        "start": event.start,
+        "end": event.end,
+        "camera": event.camera,
+        "bursts": [
+            {
+                "id": burst.id,
+                "number": burst.number,
+                "start": burst.start,
+                "photos": [photo_json(p) for p in burst.photos],
+            }
+            for burst in event.bursts
+        ],
+    }
+
+
+def report_photos() -> list[ReportPhoto]:
+    """Every photo, with faces counted at the face threshold (same as the report)."""
+    return get_catalog().get_report_photos(get_settings().face_threshold)
+
+
 def register_routes(app: Flask) -> None:
-    """The JSON API."""
+    """The page and the JSON API."""
 
-    # U4: GET /api/summary
-    #   photos = get_catalog().get_report_photos(get_settings().face_threshold)
+    @app.get("/")
+    def index():
+        return render_template("index.html")
 
-    # U5: PUT /api/photos/<image_hash>/status
-    #   use require_photo(image_hash) and json_body()
+    @app.get("/api/events")
+    def events():
+        grouped, loose = group_results(report_photos())
+        return {
+            "events": [event_json(e) for e in grouped],
+            "loose": [photo_json(p) for p in loose],
+        }
 
-    # U6: POST /api/bursts/<int:burst_id>/accept
+    @app.get("/api/photos/<image_hash>")
+    def photo_detail(image_hash: str):
+        require_photo(image_hash)
+        # One scan of the report query is fine at this catalog size
+        photo = next((p for p in report_photos() if p.image_hash == image_hash), None)
+        if photo is None:
+            abort(404, description="No such photo in the catalog")
+        settings = get_settings()
+        faces = get_catalog().get_faces_for_photo(
+            image_hash, settings.models["sharpness"], settings.face_threshold
+        )
+        return {
+            **photo_json(photo),
+            "path": photo.image_path,
+            "camera": photo.camera_model,
+            "capture_time": photo.capture_time,
+            "faces": [
+                {
+                    "id": f.face_box_id,
+                    "box": [f.x1, f.y1, f.x2, f.y2],
+                    "confidence": f.confidence,
+                    "sharpness": f.sharpness,
+                    "ear_left": f.ear_left,
+                    "ear_right": f.ear_right,
+                }
+                for f in faces
+            ],
+        }
+
+    @app.get("/api/summary")
+    def summary():
+        """Returns back the totals for the page's top bar"""
+        photos = report_photos()
+        grouped, _ = group_results(photos)
+        kept = 0
+        rejected = 0
+        unreviewed = 0
+        candidates = 0
+        eyes_closed = 0
+        unranked = 0
+        for photo in photos:
+            if photo.culled_status == "keep":
+                kept += 1
+            elif photo.culled_status == "reject":
+                rejected += 1
+            elif photo.culled_status is None:
+                unreviewed += 1
+
+            if photo.is_candidate:
+                candidates += 1
+
+            if photo.eyes_open is False:
+                eyes_closed += 1
+            if photo.rank is None:
+                unranked += 1
+
+        bursts = sum(len(event.bursts) for event in grouped)
+
+        return {
+            "photos": len(photos),
+            "events": len(grouped),
+            "bursts": bursts,
+            "candidates": candidates,
+            "eyes_closed": eyes_closed,
+            "unranked": unranked,
+            "kept": kept,
+            "rejected": rejected,
+            "unreviewed": unreviewed,
+        }
+
+    @app.put("/api/photos/<image_hash>/status")
+    def set_status(image_hash: str):
+        """Sets one photo to keep, reject or null (unreviewed)"""
+        require_photo(image_hash)
+        body = json_body()
+
+        if "status" not in body:
+            abort(400, "Status key is missing from request body")
+
+        if body["status"] not in VALID_STATUS:
+            abort(400, "Status key is not valid")
+
+        get_catalog().set_culled_status(image_hash, body["status"])
+
+        return {"hash": image_hash, "status": body["status"]}
+
+    @app.post("/api/bursts/<int:burst_id>/accept")
+    def accept_burst(burst_id: int):
+        """Marks a burst's candidates keep and its other ranked photos reject"""
+
+        result = get_catalog().accept_burst(burst_id)
+        if result is None:
+            abort(404, "No such burst")
+
+        kept, rejected = result
+        return {"kept": kept, "rejected": rejected}
