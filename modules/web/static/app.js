@@ -1,7 +1,7 @@
 /*
 File: Cully/modules/web/static/app.js
 Description: The culling page. Renders /api/events, saves keep/reject through the API and shows the detail view.
-Also has the status labels, filters and keyboard shortcuts.
+Also has the status labels, filters, keyboard shortcuts and the Run panel (start main.py, watch it live).
 */
 "use strict";
 
@@ -15,6 +15,9 @@ const detailPreview = document.getElementById("detail-preview");
 const detailMeta = document.getElementById("detail-meta");
 const detailFaces = document.getElementById("detail-faces");
 const helpEl = document.getElementById("help");
+const runButton = document.getElementById("run-button");
+const runPanel = document.getElementById("run-panel");
+const runProgress = document.getElementById("run-progress");
 
 const STATUS_LABELS = { keep: "✓ Kept", reject: "✕ Rejected" };
 
@@ -433,6 +436,7 @@ function onKey(event) {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.target.closest("input, textarea, select")) return;
   if (isDetailOpen()) return;
+  if (event.target.closest("#run-panel")) return; //The panel has its own buttons
 
   const card = document.activeElement?.closest(".card") ?? null;
   //"?" is Shift+/ so don't lower-case it
@@ -453,4 +457,215 @@ function onKey(event) {
 filtersEl.addEventListener("click", onFilterClick);
 document.addEventListener("keydown", onKey);
 
+
+// ---------- Run panel ----------
+
+const $ = (id) => document.getElementById(id);
+let folderPath = null; // folder shown in the picker, the one Start runs on
+let folderPhotos = 0;
+let runSource = null; // EventSource while following a run
+let reloadedFor = null; // started_at of the run whose results were last reloaded
+
+/** "m:ss" for a number of seconds */
+function clock(seconds) {
+  const s = Math.max(0, Math.round(seconds));
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function openRunPanel() {
+  runPanel.hidden = false;
+  runButton.setAttribute("aria-expanded", "true");
+  if (folderPath === null) loadFolders(null);
+  runPanel.querySelector(".close").focus();
+}
+
+function closeRunPanel() {
+  runPanel.hidden = true;
+  runButton.setAttribute("aria-expanded", "false");
+  runButton.focus();
+}
+
+/** Shows path's sub-folders in the picker. null means the home folder. */
+async function loadFolders(path) {
+  const url = path ? `/api/folders?path=${encodeURIComponent(path)}` : "/api/folders";
+  let data;
+  try {
+    data = await api("GET", url);
+  } catch (error) {
+    toast(`Couldn't list folders: ${error.message}`);
+    return;
+  }
+  folderPath = data.path;
+  folderPhotos = data.photos;
+  $("folder-path").textContent = data.path;
+  $("folder-path").title = data.path;
+  $("folder-up").disabled = data.parent === null;
+  $("folder-up").dataset.path = data.parent ?? "";
+
+  const items = data.folders.map((folder) => {
+    const button = el("button", "folder");
+    button.type = "button";
+    button.dataset.path = folder.path;
+    button.append(el("span", "", folder.name));
+    if (folder.photos) button.append(el("span", "badge", plural(folder.photos, "photo")));
+    const item = el("li");
+    item.append(button);
+    return item;
+  });
+  if (!items.length) items.push(el("li", "meta", "No sub-folders"));
+  $("folder-list").replaceChildren(...items);
+  $("folder-count").textContent = data.photos
+    ? `${plural(data.photos, "photo")} in this folder (sub-folders aren't scanned)`
+    : "No photos in this folder itself. Open a sub-folder.";
+  updateStart();
+}
+
+/** Start works when a folder with photos is chosen and nothing is running. */
+function updateStart(running = runButton.dataset.running === "1") {
+  $("run-start").disabled = running || !folderPhotos;
+}
+
+function stepLine(step, state) {
+  const done = state.finished.find((f) => f.step === step);
+  const item = el("li");
+  if (done) {
+    item.className = "finished";
+    item.append(el("span", "icon", "✓"), el("span", "", `${step}: ${done.result} (${done.seconds}s)`));
+  } else if (step === state.current_step) {
+    item.className = "current";
+    item.append(el("span", "icon spinner"), el("span", "", `${step}…`));
+  } else {
+    item.className = "waiting";
+    item.append(el("span", "icon", "–"), el("span", "", step));
+  }
+  return item;
+}
+
+/** Draws a run state in the panel and on the Run button. */
+function renderRun(state) {
+  runButton.dataset.running = state.running ? "1" : "";
+  runButton.textContent = state.running ? "Running…" : "Run";
+  updateStart(state.running);
+  if (!state.started_at) return; // nothing has run since the server started
+  runProgress.hidden = false;
+
+  $("run-folder").textContent = `${state.running ? "Running on" : "Last run on"} ${state.folder}`;
+  $("run-steps").replaceChildren(...state.steps.map((step) => stepLine(step, state)));
+
+  //A bar with no value shows as "busy", for model loading before the first photo
+  const bar = $("run-bar");
+  bar.hidden = !state.running;
+  if (state.current_step && state.total) bar.value = state.done / state.total;
+  else bar.removeAttribute("value");
+
+  let count = "";
+  if (state.running && state.current_step && state.total) {
+    count = `${state.current_step} ${state.done}/${state.total}`;
+    if (state.done && state.step_started_at) {
+      const elapsed = Date.now() / 1000 - state.step_started_at;
+      count += ` · about ${clock((elapsed / state.done) * (state.total - state.done))} left`;
+    }
+  } else if (state.running && state.current_step) {
+    count = `${state.current_step}: loading…`;
+  }
+  $("run-count").textContent = count;
+  $("run-file").textContent = state.running ? state.file : "";
+  $("run-cancel").hidden = !state.running || state.cancelled;
+
+  const result = $("run-result");
+  const log = $("run-log");
+  result.className = "run-result";
+  if (state.running) {
+    result.textContent = state.cancelled ? "Cancelling…" : "";
+    log.hidden = true;
+  } else if (state.error) {
+    result.classList.add("bad");
+    result.textContent = state.error;
+    log.textContent = state.log.join("\n");
+    log.hidden = !state.log.length;
+  } else {
+    const s = state.summary;
+    result.classList.add("good");
+    result.textContent = s
+      ? `Done: ${plural(s.bursts, "burst")}, ${plural(s.candidates, "candidate")}, ${s.unranked} unranked.`
+      : "Done.";
+    log.hidden = true;
+  }
+
+  //New results: once ranking has finished, or when the run ends well
+  const ranked = state.finished.some((f) => f.step === "ranking");
+  if ((ranked || (!state.running && state.exit_code === 0)) && reloadedFor !== state.started_at) {
+    reloadedFor = state.started_at;
+    load();
+  }
+}
+
+/** Follows the run live until it ends. */
+function followRun() {
+  if (runSource) return;
+  runSource = new EventSource("/api/run/events");
+  runSource.onmessage = (event) => {
+    const state = JSON.parse(event.data);
+    renderRun(state);
+    if (!state.running) stopFollowing();
+  };
+  runSource.onerror = () => {
+    //Server gone or restarted: stop the browser's own retries and check again in a bit
+    stopFollowing();
+    toast("Lost the connection to the server, retrying…");
+    setTimeout(checkRun, 3000);
+  };
+}
+
+function stopFollowing() {
+  if (runSource) runSource.close();
+  runSource = null;
+}
+
+/** Picks up a run that's going (for example after a page reload). */
+async function checkRun() {
+  try {
+    const state = await api("GET", "/api/run");
+    //Don't reload results for a run that ended before this page opened
+    if (reloadedFor === null && !state.running) reloadedFor = state.started_at;
+    renderRun(state);
+    if (state.running) followRun();
+  } catch {
+    setTimeout(checkRun, 5000);
+  }
+}
+
+async function startRun() {
+  try {
+    const state = await api("POST", "/api/run", { folder: folderPath, embeddings: $("run-embeddings").checked });
+    renderRun(state);
+    followRun();
+  } catch (error) {
+    toast(`Couldn't start the run: ${error.message}`);
+  }
+}
+
+async function cancelRun() {
+  try {
+    renderRun(await api("POST", "/api/run/cancel", {}));
+  } catch (error) {
+    toast(`Couldn't cancel: ${error.message}`);
+  }
+}
+
+runButton.addEventListener("click", () => (runPanel.hidden ? openRunPanel() : closeRunPanel()));
+runPanel.addEventListener("click", (event) => {
+  const button = event.target.closest("button");
+  if (!button) return;
+  if (button.classList.contains("close")) closeRunPanel();
+  else if (button.classList.contains("folder")) loadFolders(button.dataset.path);
+  else if (button.id === "folder-up") loadFolders(button.dataset.path);
+  else if (button.id === "run-start") startRun();
+  else if (button.id === "run-cancel") cancelRun();
+});
+runPanel.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeRunPanel();
+});
+
 load();
+checkRun();

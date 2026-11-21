@@ -18,6 +18,7 @@
     <button type="button" data-filter="rejected" aria-pressed="false">Rejected</button>
     <button type="button" data-filter="unranked" aria-pressed="false">Unranked</button>
   </nav>
+  <button type="button" id="run-button" class="run-button" aria-expanded="false" aria-controls="run-panel">Run</button>
   <button type="button" class="help-button" popovertarget="help" aria-label="Keyboard shortcuts">?</button>
   <div id="help" class="help" popover>
     <h2>Keyboard shortcuts</h2>
@@ -35,6 +36,35 @@
 </header>
 
 <main id="events"></main>
+
+<aside id="run-panel" class="run-panel" aria-labelledby="run-title" hidden>
+  <div class="run-head">
+    <h2 id="run-title">Run the pipeline</h2>
+    <button type="button" class="close" aria-label="Close">✕</button>
+  </div>
+
+  <section class="run-setup" aria-label="Choose a folder">
+    <div class="picker-bar">
+      <button type="button" id="folder-up" aria-label="Up one folder">↑</button>
+      <span id="folder-path" class="folder-path"></span>
+    </div>
+    <ul id="folder-list" class="folder-list"></ul>
+    <p id="folder-count" class="meta"></p>
+    <label class="check"><input type="checkbox" id="run-embeddings"> Also embed faces (slower, ranking doesn't need it)</label>
+    <button type="button" id="run-start" class="primary">Start run</button>
+  </section>
+
+  <section id="run-progress" class="run-progress" aria-label="Run progress" hidden>
+    <p id="run-folder" class="meta"></p>
+    <ol id="run-steps" class="run-steps"></ol>
+    <progress id="run-bar" max="1"></progress>
+    <p id="run-count" class="meta"></p>
+    <p id="run-file" class="meta run-file"></p>
+    <button type="button" id="run-cancel">Cancel run</button>
+    <p id="run-result" class="run-result" role="status"></p>
+    <pre id="run-log" class="run-log" hidden></pre>
+  </section>
+</aside>
 
 <dialog id="detail" aria-labelledby="detail-name">
   <div class="detail-bar">
