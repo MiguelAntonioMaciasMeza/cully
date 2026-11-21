@@ -7,19 +7,24 @@ Author: Miguel Macias
 Date: 2026-11-17
 """
 
+import importlib.util
+import json
 import re
 from pathlib import Path
 
-from flask import Flask, abort, g, jsonify, render_template, request, send_file
+from flask import Flask, Response, abort, current_app, g, jsonify, render_template, request, send_file
 from platformdirs import user_cache_dir
 from werkzeug.exceptions import HTTPException
 
 from config.settings import Settings
+from ingest.exif_reader import SUPPORTED_SUFFIXES
 from models.catalog import Catalog
 from models.report_photo import ReportPhoto
 from models.results import EventResult
 from utils.results import group_results
+from utils.steps import STEPS, default_steps
 from web.images import cached_face, cached_resize
+from web.runner import Runner, RunBusy
 
 HASH_PATTERN = re.compile(r"[0-9a-f]{64}")
 VALID_STATUS = ["keep", "reject", None]
@@ -27,6 +32,7 @@ THUMB_SIZE = 360
 PREVIEW_SIZE = 2000
 # Personal photos: browsers may keep them, shared caches and proxies may not
 IMAGE_CACHE_CONTROL = "private, max-age=86400"
+KEEP_ALIVE = 15  # seconds between SSE comments, so idle streams notice a closed page
 
 
 def get_catalog() -> Catalog:
@@ -84,6 +90,8 @@ def create_app(
         CATALOG_PATH=catalog_path,
         SETTINGS_PATH=settings_path,
         CACHE_DIR=Path(cache_dir) if cache_dir else Path(user_cache_dir("cully")),
+        #One runner per app, it writes to the same catalog the page reads
+        RUNNER=Runner(catalog_path),
     )
 
     @app.before_request
@@ -182,6 +190,20 @@ def event_json(event: EventResult) -> dict:
 def report_photos() -> list[ReportPhoto]:
     """Every photo, with faces counted at the face threshold (same as the report)."""
     return get_catalog().get_report_photos(get_settings().face_threshold)
+
+
+def get_runner() -> Runner:
+    return current_app.config["RUNNER"]
+
+
+def pipeline_ready() -> bool:
+    """True if this Python can run main.py. Looks torch up without importing it."""
+    return importlib.util.find_spec("torch") is not None
+
+
+def count_photos(folder: Path) -> int:
+    """Returns back how many photos the scan step would find in folder (it doesn't look in subfolders)"""
+    return sum(1 for f in folder.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED_SUFFIXES)
 
 
 def register_routes(app: Flask) -> None:
@@ -295,3 +317,84 @@ def register_routes(app: Flask) -> None:
 
         kept, rejected = result
         return {"kept": kept, "rejected": rejected}
+
+    @app.post("/api/run")
+    def start_run():
+        """Starts main.py on a folder. 409 if a run is going, 400 for bad input"""
+        body = json_body()
+        folder = body.get("folder")
+        if not isinstance(folder, str) or not folder or not Path(folder).is_dir():
+            abort(400, f"Not a folder: {folder}")
+
+        embeddings = body.get("embeddings", False)
+        if not isinstance(embeddings, bool):
+            abort(400, "embeddings must be true or false")
+
+        steps = body.get("steps")
+        if steps is None:
+            steps = default_steps(embeddings)
+        elif not isinstance(steps, list) or not steps or any(step not in STEPS for step in steps):
+            abort(400, f"steps must be a list from: {', '.join(STEPS)}")
+
+        if not pipeline_ready():
+            abort(400, "This server can't run the pipeline. Start it with venv-main.")
+        try:
+            get_runner().start(Path(folder), steps, embeddings)
+        except RunBusy:
+            abort(409, "A run is already going")
+        return get_runner().snapshot(), 202
+
+    @app.get("/api/run")
+    def run_state():
+        return get_runner().snapshot()
+
+    @app.post("/api/run/cancel")
+    def cancel_run():
+        if not get_runner().cancel():
+            abort(409, "No run is going")
+        return get_runner().snapshot()
+
+    @app.get("/api/run/events")
+    def run_events():
+        """Streams the run state as Server-Sent Events, one per change, until the run ends"""
+        runner = get_runner()
+
+        def stream():
+            state = runner.snapshot()
+            yield f"data: {json.dumps(state)}\n\n"
+            while state["running"]:
+                new = runner.wait_for_change(state["version"], KEEP_ALIVE)
+                if new["version"] == state["version"]:
+                    yield ": keep-alive\n\n"
+                    continue
+                state = new
+                yield f"data: {json.dumps(state)}\n\n"
+
+        return Response(stream(), mimetype="text/event-stream", headers={"Cache-Control": "no-cache"})
+
+    @app.get("/api/folders")
+    def folders():
+        """Sub-folders of path (default: home) with their photo counts. Only under the home folder"""
+        home = Path.home().resolve()
+        path = Path(request.args.get("path") or home).expanduser().resolve()
+        if not path.is_relative_to(home):
+            abort(400, "Only folders inside your home folder can be listed")
+        if not path.is_dir():
+            abort(400, f"Not a folder: {path}")
+
+        entries = []
+        for child in sorted(path.iterdir(), key=lambda p: p.name.lower()):
+            #Skip hidden folders and ones we can't read
+            if child.name.startswith(".") or not child.is_dir():
+                continue
+            try:
+                entries.append({"name": child.name, "path": str(child), "photos": count_photos(child)})
+            except PermissionError:
+                continue
+
+        return {
+            "path": str(path),
+            "parent": str(path.parent) if path != home else None,
+            "photos": count_photos(path),
+            "folders": entries,
+        }

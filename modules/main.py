@@ -41,8 +41,7 @@ from pipeline.landmarks import LandmarkStep
 from pipeline.sharpness import SharpnessStep
 from pipeline.burst_ranking import BurstRankStep
 from utils.progress import emit, use_json
-
-STEPS = ["scan", "objects", "faces", "landmarks", "embeddings", "sharpness", "ranking"]
+from utils.steps import STEPS, default_steps
 
 
 def parse_args() -> argparse.Namespace:
@@ -62,7 +61,7 @@ def parse_args() -> argparse.Namespace:
         if unknown:
             parser.error(f"unknown steps: {', '.join(sorted(unknown))}")
     else:
-        args.steps = [s for s in STEPS if s != "embeddings" or args.embeddings]
+        args.steps = default_steps(args.embeddings)
     return args
 
 
