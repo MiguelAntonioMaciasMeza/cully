@@ -1,0 +1,160 @@
+/*
+File: Cully/modules/web/static/app.css
+Description: Styles for the culling page. Tokens and the event/burst/lane/card layout come from report.py.
+*/
+
+:root {
+  --bg: #f6f6f4; --surface: #ffffff; --text: #1d1d1b; --muted: #6b6b66; --border: #e2e2dd;
+  --event-bg: #ffffff; --burst-bg: #f6f6f4;
+  --good: #1f7a3d; --good-bg: #e3f3e8; --good-lane: #f0f9f3; --bad: #b42318; --bad-bg: #fde8e6;
+  --rank: #1d4ed8; --rank-bg: #e3ebfd; --chip-bg: #efefeb;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #161615; --surface: #20201e; --text: #ececea; --muted: #9a9a94; --border: #33332f;
+    --event-bg: #1c1c1a; --burst-bg: #232321;
+    --good: #6fd08f; --good-bg: #1b3324; --good-lane: #19281e; --bad: #ff8a80; --bad-bg: #3a1d1a;
+    --rank: #93b4ff; --rank-bg: #1d2a47; --chip-bg: #2b2b28;
+  }
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text);
+       font: 14px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+button { font: inherit; color: inherit; }
+
+/* Top bar */
+.top { position: sticky; top: 0; z-index: 2; background: var(--bg); border-bottom: 1px solid var(--border);
+       padding: 12px 24px; display: flex; flex-wrap: wrap; gap: 8px 24px; align-items: center; }
+h1 { font-size: 18px; margin: 0; }
+.stats { color: var(--muted); }
+.stats b { color: var(--text); font-variant-numeric: tabular-nums; }
+.stats .good b { color: var(--good); }
+.filters { margin-left: auto; display: flex; flex-wrap: wrap; gap: 6px; }
+.filters button { border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
+                  padding: 3px 12px; cursor: pointer; }
+.filters button[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+/* Events, bursts, lanes */
+main { padding: 16px 24px 40px; display: flex; flex-direction: column; gap: 20px; }
+.meta { color: var(--muted); }
+.event { background: var(--event-bg); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px 16px; }
+.event-head { display: flex; flex-wrap: wrap; gap: 4px 12px; align-items: baseline; margin-bottom: 12px; }
+h2 { font-size: 16px; margin: 0; }
+.bursts { display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-start; }
+
+.burst { background: var(--burst-bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px; max-width: 100%; }
+.burst header { display: flex; flex-wrap: wrap; gap: 2px 8px; align-items: baseline; margin-bottom: 8px; }
+h3 { font-size: 13px; margin: 0; }
+.burst .meta { font-size: 12px; }
+.burst .accept { margin-left: auto; font-size: 12px; border: 1px solid var(--good); color: var(--good);
+                 background: transparent; border-radius: 999px; padding: 1px 10px; cursor: pointer; }
+.lanes { display: flex; gap: 10px; align-items: stretch; overflow-x: auto; padding: 4px; }
+.lane { border-radius: 8px; padding: 6px; border: 2px solid transparent; }
+.lane-label { font-size: 11px; font-weight: 600; letter-spacing: .04em; text-transform: uppercase;
+              color: var(--muted); margin: 0 2px 6px; }
+.lane-label span { font-weight: 400; }
+.lane.keep { background: var(--good-lane); border-color: var(--good); }
+.lane.keep .lane-label { color: var(--good); }
+.cards { display: flex; gap: 8px; }
+
+/* Cards: a button, so it can take focus. Fixed-size image box, so nothing jumps while thumbnails load. */
+.card { margin: 0; padding: 0; flex: 0 0 auto; width: 150px; text-align: left; cursor: pointer;
+        background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.card:focus-visible { outline: 3px solid var(--rank); outline-offset: 2px; }
+.thumb { display: flex; align-items: center; justify-content: center; overflow: hidden; height: 110px;
+         background: var(--chip-bg); color: var(--muted); }
+.thumb img { display: block; width: 100%; height: 100%; object-fit: contain; }
+.card.candidate { width: 220px; border-color: var(--good); }
+.card.candidate .thumb { height: 170px; }
+.card.unranked img { opacity: .55; }
+.caption { display: block; padding: 6px 8px 8px; }
+.badges { display: flex; flex-wrap: wrap; gap: 4px; min-height: 22px; }
+.badge { font-size: 12px; padding: 1px 7px; border-radius: 999px; background: var(--chip-bg);
+         font-variant-numeric: tabular-nums; }
+.badge.rank { background: var(--rank-bg); color: var(--rank); font-weight: 600; }
+.badge.good { background: var(--good); color: var(--surface); font-weight: 600; }
+.badge.bad { background: var(--bad-bg); color: var(--bad); }
+.badge.muted { color: var(--muted); }
+.name { display: block; margin-top: 4px; color: var(--muted); font-size: 12px;
+        white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+/* Status label: text plus colour, so it doesn't rely on colour alone */
+.status-label { display: inline-block; margin-top: 4px; font-size: 12px; font-weight: 600;
+                padding: 1px 7px; border-radius: 999px; }
+.status-label:empty { display: none; }
+.card[data-status="keep"] { border-color: var(--good); box-shadow: 0 0 0 1px var(--good); }
+.card[data-status="keep"] .status-label { background: var(--good-bg); color: var(--good); }
+.card[data-status="reject"] .status-label { background: var(--bad-bg); color: var(--bad); }
+/* Dim rejected photos, but lift it on hover or focus so you can still judge them */
+.card[data-status="reject"] { opacity: .45; }
+.card[data-status="reject"]:hover, .card[data-status="reject"]:focus-visible { opacity: 1; }
+/* Keeps a focused card clear of the sticky top bar when scrolling */
+.card { scroll-margin: 120px 16px 16px; }
+
+/* Help button and its popover */
+.help-button { width: 28px; height: 28px; border-radius: 50%; border: 1px solid var(--border);
+               background: var(--surface); font-weight: 600; cursor: pointer; }
+.help { inset: auto; top: 92px; right: 24px; margin: 0; max-width: calc(100vw - 32px);
+        padding: 12px 16px; border: 1px solid var(--border); border-radius: 10px;
+        background: var(--surface); color: var(--text); box-shadow: 0 6px 24px rgb(0 0 0 / .2); }
+.help h2 { font-size: 14px; margin-bottom: 8px; }
+.help dl { display: grid; grid-template-columns: auto 1fr; gap: 6px 14px; margin: 0; align-items: center; }
+.help dt { white-space: nowrap; }
+.help dd { margin: 0; color: var(--muted); }
+kbd { display: inline-block; min-width: 22px; padding: 1px 6px; text-align: center; font: 12px/1.5 ui-monospace, monospace;
+      border: 1px solid var(--border); border-bottom-width: 2px; border-radius: 5px; background: var(--chip-bg); }
+
+/* Filters: body[data-filter] hides cards that don't match, then any lane, burst or event left empty */
+body[data-filter="candidates"] .card:not([data-candidate="1"]),
+body[data-filter="candidates"] :is(.lane, .burst, .event):not(:has(.card[data-candidate="1"])) { display: none; }
+
+body[data-filter="unreviewed"] .card:not([data-status=""]),
+body[data-filter="unreviewed"] :is(.lane, .burst, .event):not(:has(.card[data-status=""])) { display: none; }
+
+body[data-filter="kept"] .card:not([data-status="keep"]),
+body[data-filter="kept"] :is(.lane, .burst, .event):not(:has(.card[data-status="keep"])) { display: none; }
+
+body[data-filter="rejected"] .card:not([data-status="reject"]),
+body[data-filter="rejected"] :is(.lane, .burst, .event):not(:has(.card[data-status="reject"])) { display: none; }
+
+body[data-filter="unranked"] .card:not([data-ranked=""]),
+body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-ranked=""])) { display: none; }
+
+/* Detail view: full-screen dialog */
+#detail { width: 100vw; height: 100dvh; max-width: none; max-height: none; margin: 0; padding: 0; border: 0;
+          background: var(--bg); color: var(--text); }
+#detail::backdrop { background: rgb(0 0 0 / .6); }
+.detail-bar { position: sticky; top: 0; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center;
+              padding: 12px 24px; background: var(--bg); border-bottom: 1px solid var(--border); }
+.detail-bar h2 { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1 1 200px; }
+.detail-actions { display: flex; gap: 6px; }
+.detail-actions button { border: 1px solid var(--border); background: var(--surface); border-radius: 6px;
+                         padding: 4px 12px; cursor: pointer; }
+.detail-actions button[data-set="keep"][aria-pressed="true"] { background: var(--good); color: var(--surface); border-color: var(--good); }
+.detail-actions button[data-set="reject"][aria-pressed="true"] { background: var(--bad); color: var(--surface); border-color: var(--bad); }
+.detail-body { padding: 16px 24px 32px; }
+#detail-preview { display: block; width: 100%; max-height: 70vh; object-fit: contain; background: var(--chip-bg); border-radius: 8px; }
+.faces { display: flex; flex-wrap: wrap; gap: 12px; }
+.face { margin: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }
+.face img { display: block; height: 220px; max-width: 100%; object-fit: contain; background: var(--chip-bg); }
+.face figcaption { padding: 6px 8px; font-size: 12px; font-variant-numeric: tabular-nums; }
+
+/* Short messages, e.g. a failed save. A popover, so it shows above the detail dialog too. */
+.toast { position: fixed; inset: auto auto 20px 50%; transform: translateX(-50%); margin: 0; border: 0;
+         max-width: calc(100vw - 32px); padding: 8px 14px; border-radius: 8px;
+         background: var(--text); color: var(--bg); }
+
+@media (max-width: 600px) {
+  .top, main, .detail-bar, .detail-body { padding-left: 16px; padding-right: 16px; }
+  .filters { margin-left: 0; }
+  .event { padding: 12px; }
+  .card { width: 120px; }
+  .thumb { height: 90px; }
+  .card.candidate { width: 170px; }
+  .card.candidate .thumb { height: 130px; }
+  .face img { height: 160px; }
+  .help { right: 16px; }
+  .card { scroll-margin-top: 240px; }
+  .help { top: 16px; }
+}

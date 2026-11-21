@@ -4,9 +4,57 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Cully</title>
+<link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
 </head>
-<body>
-<!-- Placeholder until stage 3 (M4) builds the real page -->
-<p>Cully is running. The page arrives in stage 3; the API is at <a href="/api/events">/api/events</a>.</p>
+<body data-filter="all">
+<header class="top">
+  <h1>Cully</h1>
+  <div id="summary" class="stats">Loading…</div>
+  <nav class="filters" aria-label="Filter photos">
+    <button type="button" data-filter="all" aria-pressed="true">All</button>
+    <button type="button" data-filter="candidates" aria-pressed="false">Candidates</button>
+    <button type="button" data-filter="unreviewed" aria-pressed="false">Unreviewed</button>
+    <button type="button" data-filter="kept" aria-pressed="false">Kept</button>
+    <button type="button" data-filter="rejected" aria-pressed="false">Rejected</button>
+    <button type="button" data-filter="unranked" aria-pressed="false">Unranked</button>
+  </nav>
+  <button type="button" class="help-button" popovertarget="help" aria-label="Keyboard shortcuts">?</button>
+  <div id="help" class="help" popover>
+    <h2>Keyboard shortcuts</h2>
+    <dl>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next photo</dd>
+      <dt><kbd>Enter</kbd></dt><dd>Open the photo</dd>
+      <dt><kbd>Esc</kbd></dt><dd>Close the photo or this help</dd>
+      <dt><kbd>K</kbd></dt><dd>Keep, then next</dd>
+      <dt><kbd>X</kbd></dt><dd>Reject, then next</dd>
+      <dt><kbd>U</kbd></dt><dd>Clear, then next</dd>
+      <dt><kbd>A</kbd></dt><dd>Accept the burst</dd>
+      <dt><kbd>?</kbd></dt><dd>Show / hide this help</dd>
+    </dl>
+  </div>
+</header>
+
+<main id="events"></main>
+
+<dialog id="detail" aria-labelledby="detail-name">
+  <div class="detail-bar">
+    <h2 id="detail-name"></h2>
+    <div class="detail-actions">
+      <button type="button" data-set="keep">Keep</button>
+      <button type="button" data-set="reject">Reject</button>
+      <button type="button" data-set="">Clear</button>
+      <button type="button" class="close" aria-label="Close">✕</button>
+    </div>
+  </div>
+  <div class="detail-body">
+    <img id="detail-preview" alt="">
+    <p id="detail-meta" class="meta"></p>
+    <div id="detail-faces" class="faces"></div>
+  </div>
+</dialog>
+
+<div id="toast" class="toast" role="status" aria-live="polite" popover="manual"></div>
+
+<script src="{{ url_for('static', filename='app.js') }}"></script>
 </body>
 </html>
