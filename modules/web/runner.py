@@ -29,8 +29,10 @@ class RunBusy(Exception):
 class Runner:
     """Runs main.py --progress-json and keeps a RunState the API can read or wait on."""
 
-    def __init__(self, catalog_path: str | Path | None = None, modules_dir: Path = MODULES):
+    def __init__(self, catalog_path: str | Path | None = None, modules_dir: Path = MODULES,
+                 settings_path: str | Path | None = None):
         self.catalog_path = catalog_path
+        self.settings_path = settings_path  # the same settings the server reads
         self.modules_dir = modules_dir
         self.state = RunState()
         self.process: subprocess.Popen | None = None
@@ -42,13 +44,24 @@ class Runner:
         self.state.version += 1
         self.changed.notify_all()
 
-    def start(self, folder: Path, steps: list[str], embeddings: bool = False) -> None:
-        """Starts a run in the background. Raises RunBusy if one is already going."""
-        command = [sys.executable, "-u", "main.py", str(folder), "--progress-json", "--steps", ",".join(steps)]
+    def start(self, folder: Path | None, steps: list[str], embeddings: bool = False,
+              import_to: Path | None = None, redo: str | None = None) -> None:
+        """Starts a run in the background. folder can be None for catalog-only runs (redo, re-rank).
+        Raises RunBusy if one is already going."""
+        command = [sys.executable, "-u", "main.py"]
+        if folder is not None:
+            command.append(str(folder))
+        command += ["--progress-json", "--steps", ",".join(steps)]
         if embeddings:
             command.append("--embeddings")
+        if import_to is not None:
+            command += ["--import-to", str(import_to)]
+        if redo is not None:
+            command += ["--redo", redo]
         if self.catalog_path:
             command += ["--catalog", str(self.catalog_path)]
+        if self.settings_path:
+            command += ["--settings", str(self.settings_path)]
 
         with self.changed:
             if self.state.running:
@@ -59,7 +72,7 @@ class Runner:
                 text=True, bufsize=1, start_new_session=True,
             )
             self.state = RunState(
-                running=True, folder=str(folder), steps=list(steps),
+                running=True, folder=str(folder) if folder is not None else None, steps=list(steps),
                 started_at=time.time(), version=self.state.version,
             )
             self._bump()
@@ -68,7 +81,7 @@ class Runner:
         log_reader = threading.Thread(target=self._read_log, args=(process,), daemon=True)
         log_reader.start()
         threading.Thread(target=self._read_events, args=(process, log_reader), daemon=True).start()
-        print(f"[runner.py] Started run on {folder} (pid {process.pid})")
+        print(f"[runner.py] Started run on {folder or 'the catalog'} (pid {process.pid})")
 
     def _read_log(self, process: subprocess.Popen) -> None:
         """Keeps main.py's stderr as the run's log"""

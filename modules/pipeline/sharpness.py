@@ -8,6 +8,7 @@ Date: 2026-10-30
 
 from dataclasses import dataclass, field
 from config.settings import Settings
+from utils.steps import fingerprint
 from models.catalog import Catalog
 from scoring.laplacian import laplacian_sharpness
 from utils.progress import file_name, track
@@ -50,3 +51,6 @@ class SharpnessStep:
                     print(f"[sharpness.py] Skipping box {box.id} on hash {image_hash}: {e}")
 
         self.catalog.insert_face_scores(rows)
+        #Only the settings' own method counts as "sharpness is up to date"
+        if method == self.settings.models["sharpness"]:
+            self.catalog.record_catalog_run("sharpness", fingerprint(self.settings, "sharpness"))

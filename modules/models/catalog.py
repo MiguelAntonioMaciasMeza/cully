@@ -182,6 +182,26 @@ class Catalog:
             FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
             )
         """)
+        # Which settings (as a fingerprint, see utils/steps.py) made each photo's objects and faces,
+        # so the app can tell when a settings change left them out of date
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS step_runs(
+            image_hash TEXT NOT NULL,
+            step TEXT NOT NULL,
+            fingerprint TEXT NOT NULL,
+            ran_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (image_hash, step),
+            FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
+            )
+        """)
+        # Same for steps that redo the whole catalog (sharpness, ranking): one row per step
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS catalog_runs(
+            step TEXT PRIMARY KEY,
+            fingerprint TEXT NOT NULL,
+            ran_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
 
         self.catalog_connection.commit()
 
@@ -856,6 +876,105 @@ class Catalog:
                     """, (burst_id,),)
             rejected = self.cursor.rowcount
             return kept, rejected
+
+    def _processed_hashes(self, step: str) -> set[str]:
+        """Returns back the photos step has stored results for (marker rows count)"""
+        if step == "objects":
+            return self.get_object_hashes()
+        if step == "faces":
+            return self.get_face_box_hashes()
+        raise ValueError(f"[catalog.py] {step} isn't tracked per photo")
+
+    def record_step_runs(self, step: str, hashes: set[str] | list[str], fingerprint: str) -> None:
+        """Records that step just ran on hashes with the settings behind fingerprint"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        with self.catalog_connection:
+            self.cursor.executemany(
+                "INSERT OR REPLACE INTO step_runs (image_hash, step, fingerprint, ran_at) "
+                "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                [(image_hash, step, fingerprint) for image_hash in hashes],
+            )
+
+    def record_catalog_run(self, step: str, fingerprint: str) -> None:
+        """Records that a whole-catalog step (sharpness, ranking) just ran with fingerprint's settings"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        with self.catalog_connection:
+            self.cursor.execute(
+                "INSERT OR REPLACE INTO catalog_runs (step, fingerprint, ran_at) VALUES (?, ?, CURRENT_TIMESTAMP)",
+                (step, fingerprint),
+            )
+
+    def catalog_run_fingerprint(self, step: str) -> str | None:
+        """Returns back the fingerprint step last ran with, None if it never ran since tracking began"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        row = self.cursor.execute("SELECT fingerprint FROM catalog_runs WHERE step = ?", (step,)).fetchone()
+        return row["fingerprint"] if row else None
+
+    def start_tracking(self, fingerprints: dict[str, str]) -> bool:
+        """The first time only: records everything already processed as made with fingerprints
+        (step -> fingerprint), so older photos aren't flagged. Returns back True if it did that now"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        if self.catalog_run_fingerprint("tracking_started") is not None:
+            return False
+        for step in ("objects", "faces"):
+            self.record_step_runs(step, self._processed_hashes(step), fingerprints[step])
+        #Only claim ranking ran if it left something behind
+        ranked = self.cursor.execute("SELECT 1 FROM photo_groups LIMIT 1").fetchone()
+        if ranked:
+            for step in ("sharpness", "ranking"):
+                self.record_catalog_run(step, fingerprints[step])
+        self.record_catalog_run("tracking_started", "-")
+        return True
+
+    def stale_photos(self, step: str, fingerprint: str) -> set[str]:
+        """Returns back photos whose step results were made with other settings than fingerprint"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        current = {
+            row["image_hash"]
+            for row in self.cursor.execute(
+                "SELECT image_hash FROM step_runs WHERE step = ? AND fingerprint = ?", (step, fingerprint)
+            )
+        }
+        #Processed but with no matching record also counts, it can't be shown to be current
+        return self._processed_hashes(step) - current
+
+    def delete_detections(self, hashes: set[str] | list[str], step: str) -> int:
+        """Deletes what step and the steps after it stored for hashes, so the next run redoes them.
+        objects: person/object boxes and everything below. faces: face boxes and below, person boxes stay.
+        Never touches culled_status. Returns back how many photos were cleared"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py] cursor/catalog_connection is None")
+        if step not in ("objects", "faces"):
+            raise ValueError(f"[catalog.py] can't redo {step}, only objects or faces")
+        hashes = list(hashes)
+        cursor = self.cursor
+        with self.catalog_connection:
+            # A temp table keeps the IN lists short however many photos there are
+            cursor.execute("CREATE TEMP TABLE IF NOT EXISTS redo_hashes (image_hash TEXT PRIMARY KEY)")
+            cursor.execute("DELETE FROM redo_hashes")
+            cursor.executemany("INSERT OR IGNORE INTO redo_hashes VALUES (?)", [(h,) for h in hashes])
+            faces = """SELECT f.id FROM face_boxes f JOIN bounding_boxes b ON b.id = f.parent_box_id
+                       WHERE b.image_hash IN (SELECT image_hash FROM redo_hashes)"""
+            #Children first, the foreign keys are on
+            cursor.execute(f"DELETE FROM face_landmarks WHERE face_box_id IN ({faces})")
+            cursor.execute(f"DELETE FROM face_embeddings WHERE face_box_id IN ({faces})")
+            cursor.execute(f"DELETE FROM face_scores WHERE face_box_id IN ({faces})")
+            cursor.execute(f"DELETE FROM face_boxes WHERE id IN ({faces})")
+            redone = ["faces"]
+            if step == "objects":
+                cursor.execute("DELETE FROM bounding_boxes WHERE image_hash IN (SELECT image_hash FROM redo_hashes)")
+                redone.append("objects")
+            cursor.executemany(
+                "DELETE FROM step_runs WHERE step = ? AND image_hash IN (SELECT image_hash FROM redo_hashes)",
+                [(name,) for name in redone],
+            )
+            cursor.execute("DELETE FROM redo_hashes")
+        return len(hashes)
 
     def close(self):
         if self.catalog_connection:

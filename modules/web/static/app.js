@@ -232,6 +232,7 @@ async function load() {
     eventsEl.replaceChildren(el("p", "meta", `Couldn't load photos: ${error.message}`));
   }
   loadSummary();
+  loadStaleness();
 }
 
 
@@ -463,6 +464,7 @@ document.addEventListener("keydown", onKey);
 const $ = (id) => document.getElementById(id);
 let folderPath = null; // folder shown in the picker, the one Start runs on
 let folderPhotos = 0;
+let importTo = null; // where a card's photos get copied, null when the folder isn't on a card
 let runSource = null; // EventSource while following a run
 let reloadedFor = null; // started_at of the run whose results were last reloaded
 
@@ -475,7 +477,8 @@ function clock(seconds) {
 function openRunPanel() {
   runPanel.hidden = false;
   runButton.setAttribute("aria-expanded", "true");
-  if (folderPath === null) loadFolders(null);
+  //Reload every time, so a card put in since shows up
+  loadFolders(folderPath);
   runPanel.querySelector(".close").focus();
 }
 
@@ -493,13 +496,24 @@ async function loadFolders(path) {
     data = await api("GET", url);
   } catch (error) {
     toast(`Couldn't list folders: ${error.message}`);
+    //A card that was taken out: go back home
+    if (path !== null) loadFolders(null);
     return;
   }
   folderPath = data.path;
   folderPhotos = data.photos;
+  importTo = data.import_to;
   $("folder-path").textContent = data.path;
   $("folder-path").title = data.path;
   $("folder-up").disabled = data.parent === null;
+  $("folder-places").replaceChildren(...data.roots.map((root) => {
+    const button = el("button", "place", root.name === "Home" ? "⌂ Home" : `💾 ${root.name}`);
+    button.type = "button";
+    button.dataset.path = root.path;
+    button.title = root.path;
+    button.setAttribute("aria-pressed", String(root.path === data.root));
+    return button;
+  }));
   $("folder-up").dataset.path = data.parent ?? "";
 
   const items = data.folders.map((folder) => {
@@ -514,9 +528,16 @@ async function loadFolders(path) {
   });
   if (!items.length) items.push(el("li", "meta", "No sub-folders"));
   $("folder-list").replaceChildren(...items);
-  $("folder-count").textContent = data.photos
-    ? `${plural(data.photos, "photo")} in this folder (sub-folders aren't scanned)`
-    : "No photos in this folder itself. Open a sub-folder.";
+  if (importTo) {
+    $("folder-count").textContent = data.photos
+      ? `${plural(data.photos, "photo")} here and in sub-folders. New ones are copied to ${importTo} first, then run.`
+      : "No photos on this part of the card.";
+  } else {
+    $("folder-count").textContent = data.photos
+      ? `${plural(data.photos, "photo")} in this folder (sub-folders aren't scanned)`
+      : "No photos in this folder itself. Open a sub-folder.";
+  }
+  $("run-start").textContent = importTo ? "Copy and run" : "Start run";
   updateStart();
 }
 
@@ -546,10 +567,12 @@ function renderRun(state) {
   runButton.dataset.running = state.running ? "1" : "";
   runButton.textContent = state.running ? "Running…" : "Run";
   updateStart(state.running);
+  $("stale-rerank").disabled = state.running;
+  $("stale-redo").disabled = state.running;
   if (!state.started_at) return; // nothing has run since the server started
   runProgress.hidden = false;
 
-  $("run-folder").textContent = `${state.running ? "Running on" : "Last run on"} ${state.folder}`;
+  $("run-folder").textContent = `${state.running ? "Running on" : "Last run on"} ${state.folder ?? "the whole catalog"}`;
   $("run-steps").replaceChildren(...state.steps.map((step) => stepLine(step, state)));
 
   //A bar with no value shows as "busy", for model loading before the first photo
@@ -635,15 +658,68 @@ async function checkRun() {
   }
 }
 
-async function startRun() {
+/** Starts a run with body (see POST /api/run) and follows it. */
+async function runWith(body) {
   try {
-    const state = await api("POST", "/api/run", { folder: folderPath, embeddings: $("run-embeddings").checked });
+    const state = await api("POST", "/api/run", body);
     renderRun(state);
     followRun();
+    return true;
   } catch (error) {
     toast(`Couldn't start the run: ${error.message}`);
+    return false;
   }
 }
+
+function startRun() {
+  const body = { folder: folderPath, embeddings: $("run-embeddings").checked };
+  if (importTo) body.import = true;
+  runWith(body);
+}
+
+
+// ---------- Out-of-date banner ----------
+
+let staleRedoCount = 0;
+
+/** Shows the banner when settings changed since the pipeline last ran. */
+async function loadStaleness() {
+  let s;
+  try {
+    s = await api("GET", "/api/staleness");
+  } catch {
+    return; // the banner is a hint, the page works without it
+  }
+  const parts = [];
+  //Redoing objects redoes faces too, so objects decides
+  const redo = s.objects ? "objects" : s.faces ? "faces" : null;
+  staleRedoCount = s.objects || s.faces;
+  if (s.objects) parts.push(`${plural(s.objects, "photo")} had people found with older settings`);
+  else if (s.faces) parts.push(`${plural(s.faces, "photo")} had faces found with older settings`);
+  if (s.ranking || s.sharpness) parts.push("the ranking used older settings");
+
+  $("stale").hidden = !s.any;
+  $("stale-text").textContent = `Settings changed since the pipeline last ran: ${parts.join(", and ")}.`;
+  $("stale-redo").hidden = !redo;
+  $("stale-redo").dataset.redo = redo ?? "";
+  //A redo re-ranks too, so only offer Re-rank on its own
+  $("stale-rerank").hidden = !(s.ranking || s.sharpness) || !!redo;
+}
+
+$("stale-rerank").addEventListener("click", async () => {
+  if (await runWith({ steps: ["sharpness", "ranking"] })) openRunPanel();
+});
+
+$("stale-redo").addEventListener("click", async () => {
+  const step = $("stale-redo").dataset.redo;
+  const what = step === "objects" ? "people and faces" : "faces";
+  const ok = confirm(
+    `Redo detection for ${plural(staleRedoCount, "photo")}?\n\n`
+    + `Their stored ${what} are deleted and found again with the current settings, then everything is re-ranked. `
+    + "Your keep/reject choices stay. This can take a while."
+  );
+  if (ok && (await runWith({ redo: step }))) openRunPanel();
+});
 
 async function cancelRun() {
   try {
@@ -658,7 +734,7 @@ runPanel.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   if (button.classList.contains("close")) closeRunPanel();
-  else if (button.classList.contains("folder")) loadFolders(button.dataset.path);
+  else if (button.classList.contains("folder") || button.classList.contains("place")) loadFolders(button.dataset.path);
   else if (button.id === "folder-up") loadFolders(button.dataset.path);
   else if (button.id === "run-start") startRun();
   else if (button.id === "run-cancel") cancelRun();

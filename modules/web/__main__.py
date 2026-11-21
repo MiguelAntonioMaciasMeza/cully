@@ -2,7 +2,7 @@
 File: Cully/modules/web/__main__.py
 Description: Starts the Cully web server. Refuses any host that isn't this machine unless --allow-remote is given.
 Run from Cully/modules:
-    python -m web [--catalog PATH] [--host 127.0.0.1] [--port 5000] [--allow-remote] [--open]
+    python -m web [--catalog PATH] [--settings PATH] [--host 127.0.0.1] [--port 5000] [--allow-remote] [--open]
 Author: Miguel Macias
 Date: 2026-11-20
 """
@@ -27,7 +27,7 @@ def is_local(host: str) -> bool:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    """Returns back the parser with --catalog, --host, --port, --allow-remote and --open"""
+    """Returns back the parser with --catalog, --settings, --host, --port, --allow-remote and --open"""
     parser = argparse.ArgumentParser(
         prog="python -m web", description="Cully web server"
     )
@@ -36,6 +36,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--catalog",
         help="Location to your catalog, if none is set it will default to whatever catalog is configured in your configs",
+        type=str,
+        default=None,
+    )
+    parser.add_argument(
+        "--settings",
+        help="Settings file to use, default: ~/.config/cully/settings.json. Runs started from the page use it too",
         type=str,
         default=None,
     )
@@ -83,7 +89,7 @@ def main():
     if args.catalog is not None and not Path(args.catalog).is_file():
         parser.error(f"[web/__main__.py]No catalog file at {args.catalog}")
 
-    app = create_app(catalog_path=args.catalog)
+    app = create_app(catalog_path=args.catalog, settings_path=args.settings)
     print(f"[web/__main__.py]Serving {args.catalog or 'the default catalog'} at http://{args.host}:{args.port}/")
 
     if args.open:

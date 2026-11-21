@@ -16,6 +16,7 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 
 from config.settings import Settings
+from utils.steps import fingerprint
 from models.catalog import Catalog
 from models.face_score import RankedPhoto
 from pipeline.grouping import ImageGrouper
@@ -62,4 +63,6 @@ class BurstRankStep:
                 )
                 self.catalog.update_burst_ranking(ranked)
                 rankings.append(ranked)
+        if method == self.settings.models["sharpness"]:
+            self.catalog.record_catalog_run("ranking", fingerprint(self.settings, "ranking"))
         return rankings

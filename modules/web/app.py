@@ -7,6 +7,7 @@ Author: Miguel Macias
 Date: 2026-11-17
 """
 
+import getpass
 import importlib.util
 import json
 import re
@@ -18,11 +19,12 @@ from werkzeug.exceptions import HTTPException
 
 from config.settings import Settings
 from ingest.exif_reader import SUPPORTED_SUFFIXES
+from ingest.importer import card_photos, import_folder
 from models.catalog import Catalog
 from models.report_photo import ReportPhoto
 from models.results import EventResult
 from utils.results import group_results
-from utils.steps import STEPS, default_steps
+from utils.steps import CATALOG_STEPS, PHOTO_STEPS, STEPS, default_steps, fingerprint
 from web.images import cached_face, cached_resize
 from web.runner import Runner, RunBusy
 
@@ -33,6 +35,8 @@ PREVIEW_SIZE = 2000
 # Personal photos: browsers may keep them, shared caches and proxies may not
 IMAGE_CACHE_CONTROL = "private, max-age=86400"
 KEEP_ALIVE = 15  # seconds between SSE comments, so idle streams notice a closed page
+# Where memory cards and USB drives show up: /media/<user>/<card> (Ubuntu), /run/media/<user>/<card> (Fedora)
+MOUNT_BASES = [Path("/media"), Path("/run/media")]
 
 
 def get_catalog() -> Catalog:
@@ -91,7 +95,7 @@ def create_app(
         SETTINGS_PATH=settings_path,
         CACHE_DIR=Path(cache_dir) if cache_dir else Path(user_cache_dir("cully")),
         #One runner per app, it writes to the same catalog the page reads
-        RUNNER=Runner(catalog_path),
+        RUNNER=Runner(catalog_path, settings_path=settings_path),
     )
 
     @app.before_request
@@ -201,9 +205,31 @@ def pipeline_ready() -> bool:
     return importlib.util.find_spec("torch") is not None
 
 
-def count_photos(folder: Path) -> int:
-    """Returns back how many photos the scan step would find in folder (it doesn't look in subfolders)"""
+def photo_roots() -> list[Path]:
+    """Returns back the folders the picker may show: home, then each mounted card or drive"""
+    roots = [Path.home().resolve()]
+    user = getpass.getuser()
+    for base in MOUNT_BASES:
+        try:
+            roots += sorted(p.resolve() for p in (base / user).iterdir() if p.is_dir())
+        except OSError:
+            continue  # no such folder on this system, or not readable
+    return roots
+
+
+def count_photos(folder: Path, on_card: bool = False) -> int:
+    """Returns back how many photos a run would take from folder. A card import also takes sub-folders,
+    a scan doesn't"""
+    if on_card:
+        return len(card_photos(folder))
     return sum(1 for f in folder.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED_SUFFIXES)
+
+
+def card_root(folder: Path) -> Path | None:
+    """Returns back the mounted card folder is on, None if it isn't on one"""
+    folder = folder.resolve()
+    cards = [root for root in photo_roots()[1:] if folder.is_relative_to(root)]
+    return max(cards, key=lambda r: len(r.parts)) if cards else None
 
 
 def register_routes(app: Flask) -> None:
@@ -320,29 +346,73 @@ def register_routes(app: Flask) -> None:
 
     @app.post("/api/run")
     def start_run():
-        """Starts main.py on a folder. 409 if a run is going, 400 for bad input"""
+        """Starts main.py: on a folder, a card import, a redo or a re-rank. 409 if a run is going,
+        400 for bad input"""
         body = json_body()
-        folder = body.get("folder")
-        if not isinstance(folder, str) or not folder or not Path(folder).is_dir():
-            abort(400, f"Not a folder: {folder}")
-
         embeddings = body.get("embeddings", False)
         if not isinstance(embeddings, bool):
             abort(400, "embeddings must be true or false")
 
+        #A redo works on out-of-date photos in the whole catalog, no folder
+        redo = body.get("redo")
+        if redo is not None and redo not in PHOTO_STEPS:
+            abort(400, f"redo must be one of: {', '.join(PHOTO_STEPS)}")
+
         steps = body.get("steps")
         if steps is None:
-            steps = default_steps(embeddings)
+            steps = default_steps(embeddings, redo=redo is not None)
         elif not isinstance(steps, list) or not steps or any(step not in STEPS for step in steps):
             abort(400, f"steps must be a list from: {', '.join(STEPS)}")
+        if ("redo" in steps) != (redo is not None):
+            abort(400, "The redo step and \"redo\" go together")
+
+        #Only scan and import read a folder
+        folder = body.get("folder")
+        needs_folder = "scan" in steps or "import" in steps or body.get("import", False)
+        if needs_folder and (not isinstance(folder, str) or not folder or not Path(folder).is_dir()):
+            abort(400, f"Not a folder: {folder}")
+        if not needs_folder:
+            folder = None
+
+        #Photos on a card are copied to disk first, the catalog then points at the copies
+        importing = body.get("import", False)
+        if not isinstance(importing, bool):
+            abort(400, "import must be true or false")
+        import_to = None
+        if importing:
+            if card_root(Path(folder)) is None:
+                abort(400, "Only folders on a memory card can be imported")
+            if body.get("steps") is None:
+                steps = default_steps(embeddings, importing=True)
+            elif "import" not in steps:
+                abort(400, "An import needs the import step")
+            import_to = import_folder()
+        elif "import" in steps:
+            abort(400, "The import step needs \"import\": true")
 
         if not pipeline_ready():
             abort(400, "This server can't run the pipeline. Start it with venv-main.")
         try:
-            get_runner().start(Path(folder), steps, embeddings)
+            get_runner().start(Path(folder) if folder else None, steps, embeddings, import_to, redo)
         except RunBusy:
             abort(409, "A run is already going")
         return get_runner().snapshot(), 202
+
+    @app.get("/api/staleness")
+    def staleness():
+        """What's out of date because settings changed since it was made: photos per detection step,
+        and whether sharpness or ranking last ran with other settings"""
+        settings = get_settings()
+        catalog = get_catalog()
+        fingerprints = {step: fingerprint(settings, step) for step in PHOTO_STEPS + CATALOG_STEPS}
+        #A catalog from before tracking: what's there counts as made with today's settings
+        catalog.start_tracking(fingerprints)
+        photos = {step: len(catalog.stale_photos(step, fingerprints[step])) for step in PHOTO_STEPS}
+        steps = {}
+        for step in CATALOG_STEPS:
+            last = catalog.catalog_run_fingerprint(step)
+            steps[step] = last is not None and last != fingerprints[step]
+        return {**photos, **steps, "any": any(photos.values()) or any(steps.values())}
 
     @app.get("/api/run")
     def run_state():
@@ -374,27 +444,35 @@ def register_routes(app: Flask) -> None:
 
     @app.get("/api/folders")
     def folders():
-        """Sub-folders of path (default: home) with their photo counts. Only under the home folder"""
-        home = Path.home().resolve()
+        """Sub-folders of path (default: home) with their photo counts. Only inside home or a mounted card"""
+        roots = photo_roots()
+        home = roots[0]
         path = Path(request.args.get("path") or home).expanduser().resolve()
-        if not path.is_relative_to(home):
-            abort(400, "Only folders inside your home folder can be listed")
+        #The deepest root holding path, so a card's top folder has no parent to go up to
+        inside = [root for root in roots if path.is_relative_to(root)]
+        if not inside:
+            abort(400, "Only your home folder and memory cards can be listed")
+        root = max(inside, key=lambda r: len(r.parts))
         if not path.is_dir():
             abort(400, f"Not a folder: {path}")
 
+        on_card = root != home
         entries = []
         for child in sorted(path.iterdir(), key=lambda p: p.name.lower()):
             #Skip hidden folders and ones we can't read
             if child.name.startswith(".") or not child.is_dir():
                 continue
             try:
-                entries.append({"name": child.name, "path": str(child), "photos": count_photos(child)})
+                entries.append({"name": child.name, "path": str(child), "photos": count_photos(child, on_card)})
             except PermissionError:
                 continue
 
         return {
             "path": str(path),
-            "parent": str(path.parent) if path != home else None,
-            "photos": count_photos(path),
+            "parent": str(path.parent) if path != root else None,
+            "photos": count_photos(path, on_card),
             "folders": entries,
+            "import_to": str(import_folder()) if on_card else None,
+            "root": str(root),
+            "roots": [{"name": "Home" if r == home else r.name, "path": str(r)} for r in roots],
         }

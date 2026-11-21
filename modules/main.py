@@ -5,7 +5,11 @@ Description: Runs the whole Cully pipeline on a folder: scan, objects, faces, la
 except sharpness and ranking, which redo the whole catalog.
 Run from Cully/modules with venv-main:
     python main.py <folder> [--catalog PATH] [--embeddings] [--steps scan,objects,...] [--progress]
-    [--progress-json]
+    [--progress-json] [--import-to DEST] [--settings PATH]
+    python main.py --redo objects|faces [--catalog PATH] [--settings PATH]
+With --import-to, photos in <folder> and its sub-folders (a memory card) are copied to DEST first,
+and DEST is scanned instead. --redo deletes the objects (or faces) of every photo made with older
+settings, then the steps after it redo them. Keep/reject choices are never touched.
 Author: Miguel Macias
 Date: 2026-11-16
 """
@@ -33,6 +37,7 @@ from time import perf_counter
 from config.config import Config
 from config.settings import Settings
 from ingest.directory_scanner import DirectoryScanner
+from ingest.importer import import_photos
 from models.catalog import Catalog
 # torch (YOLO) has to load before TensorFlow (DeepFace) or the process crashes, so objects goes first
 from pipeline.objects import ObjectStep
@@ -41,16 +46,19 @@ from pipeline.landmarks import LandmarkStep
 from pipeline.sharpness import SharpnessStep
 from pipeline.burst_ranking import BurstRankStep
 from utils.progress import emit, use_json
-from utils.steps import STEPS, default_steps
+from utils.steps import CATALOG_STEPS, PHOTO_STEPS, STEPS, default_steps, fingerprint
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Cully pipeline on a folder of photos.")
-    parser.add_argument("folder", type=Path, help="folder of photos to scan")
+    parser.add_argument("folder", type=Path, nargs="?", help="folder of photos to scan (not needed for --redo)")
     parser.add_argument("--catalog", type=Path, help="catalog file to use will default to main catalog, add field if you want a different catalog to be created")
     parser.add_argument("--embeddings", action="store_true", help="also embed faces (ranking doesn't need it)")
     parser.add_argument("--steps", help=f"comma separated subset of: {','.join(STEPS)}")
     parser.add_argument("-p", "--progress", action="store_true", help="show a live progress line for each step")
+    parser.add_argument("--import-to", type=Path, help="copy the folder's photos (and its sub-folders') here first, then scan this folder")
+    parser.add_argument("--redo", choices=PHOTO_STEPS, help="redo this step (and the ones after it) for photos made with older settings")
+    parser.add_argument("--settings", type=Path, help="settings file to use (default: ~/.config/cully/settings.json)")
     parser.add_argument("--progress-json", action="store_true",
                         help="write progress as JSON lines on stdout, everything else goes to stderr")
     args = parser.parse_args()
@@ -61,20 +69,31 @@ def parse_args() -> argparse.Namespace:
         if unknown:
             parser.error(f"unknown steps: {', '.join(sorted(unknown))}")
     else:
-        args.steps = default_steps(args.embeddings)
+        args.steps = default_steps(args.embeddings, importing=args.import_to is not None, redo=args.redo is not None)
+    if "import" in args.steps and args.import_to is None:
+        parser.error("the import step needs --import-to DEST")
+    if "redo" in args.steps and args.redo is None:
+        parser.error("the redo step needs --redo objects|faces")
+    if ("scan" in args.steps or "import" in args.steps) and args.folder is None:
+        parser.error("a folder is needed for the scan and import steps")
     return args
 
 
 def main():
     args = parse_args()
-    if "scan" in args.steps and not args.folder.is_dir():
+    if ("scan" in args.steps or "import" in args.steps) and not args.folder.is_dir():
         raise SystemExit(f"[main.py] Not a folder: {args.folder}")
+    #After an import, the copies are what gets scanned
+    scan_folder = args.import_to or args.folder
 
     # One Settings, Config and Catalog shared by every step
-    settings = Settings()
+    settings = Settings(path=args.settings) if args.settings else Settings()
     config = Config()
     catalog = Catalog(str(args.catalog)) if args.catalog else Catalog()
     print(f"[main.py] Catalog: {catalog.catalog_path}")
+    #First run since tracking existed: what's already there counts as made with these settings
+    if catalog.start_tracking({step: fingerprint(settings, step) for step in PHOTO_STEPS + CATALOG_STEPS}):
+        print("[main.py] Started tracking which settings made each result")
 
     if JSON_OUT is not None:
         use_json(JSON_OUT)
@@ -89,8 +108,15 @@ def main():
             # Model loading happens before the first photo, so say the step has started
             print(f"[main.py] {name}: starting", flush=True)
         match name:
+            case "import":
+                copied = import_photos(args.folder, args.import_to, catalog.get_all_hashes(), show)
+                result = f"{copied} new photos copied to {args.import_to}"
+            case "redo":
+                stale = catalog.stale_photos(args.redo, fingerprint(settings, args.redo))
+                catalog.delete_detections(stale, args.redo)
+                result = f"{len(stale)} photos cleared for {args.redo}"
             case "scan":
-                result = f"{len(DirectoryScanner(catalog).scan(args.folder, show))} photos found"
+                result = f"{len(DirectoryScanner(catalog).scan(scan_folder, show))} photos found"
             case "objects":
                 result = f"{ObjectStep(catalog, settings, config, show).run()} new photos"
             case "faces":

@@ -35,6 +35,14 @@
   </div>
 </header>
 
+<div id="stale" class="stale" role="status" hidden>
+  <p id="stale-text"></p>
+  <div class="stale-actions">
+    <button type="button" id="stale-rerank">Re-rank now</button>
+    <button type="button" id="stale-redo">Redo detection…</button>
+  </div>
+</div>
+
 <main id="events"></main>
 
 <aside id="run-panel" class="run-panel" aria-labelledby="run-title" hidden>
@@ -44,6 +52,7 @@
   </div>
 
   <section class="run-setup" aria-label="Choose a folder">
+    <div id="folder-places" class="places" aria-label="Home and memory cards"></div>
     <div class="picker-bar">
       <button type="button" id="folder-up" aria-label="Up one folder">↑</button>
       <span id="folder-path" class="folder-path"></span>

@@ -10,6 +10,8 @@ Date: 2026-11-21
 """
 
 from pathlib import Path
+import getpass
+from hashlib import sha256
 import importlib.util
 import json
 import shutil
@@ -18,6 +20,9 @@ import tempfile
 import time
 
 from utils.steps import default_steps
+import ingest.importer
+import web.app
+from ingest.importer import import_photos
 from web.app import create_app
 from web.runner import Runner
 
@@ -171,6 +176,91 @@ def test_folders():
         assert client.get("/api/folders", query_string={"path": "/"}).status_code == 400
         file_path = str(Path(folder) / "shoot" / "a.jpg")
         assert client.get("/api/folders", query_string={"path": file_path}).status_code == 400
+
+
+def test_memory_cards():
+    with tempfile.TemporaryDirectory() as base:
+        #A fake card as Ubuntu mounts it: /media/<user>/<card>/DCIM/100CANON
+        card = Path(base) / getpass.getuser() / "EOS_DIGITAL"
+        (card / "DCIM" / "100CANON").mkdir(parents=True)
+        (card / "DCIM" / "100CANON" / "IMG_0001.JPG").write_bytes(b"")
+        before = web.app.MOUNT_BASES
+        web.app.MOUNT_BASES = [Path(base), Path(base) / "missing"]
+        try:
+            client = create_app(Path(base) / "c.db", Path(base) / "s.json", Path(base) / "cache").test_client()
+            home = client.get("/api/folders").get_json()
+            assert [r["name"] for r in home["roots"]] == ["Home", "EOS_DIGITAL"], home["roots"]
+
+            top = client.get("/api/folders", query_string={"path": str(card)}).get_json()
+            assert top["root"] == str(card.resolve()) and top["parent"] is None, top
+            photos = client.get("/api/folders", query_string={"path": str(card / "DCIM" / "100CANON")}).get_json()
+            assert photos["photos"] == 1 and photos["parent"] == str((card / "DCIM").resolve()), photos
+
+            #Next to the card, but not on it
+            outside = client.get("/api/folders", query_string={"path": base})
+            assert outside.status_code == 400, outside.status_code
+        finally:
+            web.app.MOUNT_BASES = before
+
+
+def fake_card(base: Path) -> Path:
+    """Returns back a fake mounted card under base, as Ubuntu mounts one: base/<user>/EOS_DIGITAL"""
+    card = base / getpass.getuser() / "EOS_DIGITAL"
+    (card / "DCIM" / "100CANON").mkdir(parents=True)
+    return card
+
+
+def test_import_photos():
+    with tempfile.TemporaryDirectory() as base:
+        card = fake_card(Path(base))
+        (card / "DCIM" / "101CANON").mkdir()
+        (card / "DCIM" / "100CANON" / "IMG_0001.JPG").write_bytes(b"first")
+        (card / "DCIM" / "101CANON" / "IMG_0001.JPG").write_bytes(b"second")  # same name, other photo
+        (card / "DCIM" / "100CANON" / "IMG_0002.JPG").write_bytes(b"known")
+        (card / "DCIM" / "100CANON" / "._IMG_0003.JPG").write_bytes(b"mac junk")
+        (card / "DCIM" / "100CANON" / "NOTES.TXT").write_bytes(b"not a photo")
+        known = {sha256(b"known").hexdigest()}
+        dest = Path(base) / "imported"
+
+        assert import_photos(card, dest, known) == 2
+        assert sorted(p.name for p in dest.iterdir()) == ["IMG_0001.JPG", "IMG_0001_1.JPG"], list(dest.iterdir())
+        #Importing the same card again copies nothing
+        assert import_photos(card, dest, known) == 0
+        assert len(list(dest.iterdir())) == 2
+
+
+def test_card_import_run():
+    with tempfile.TemporaryDirectory() as base:
+        photo_folder(Path(base))  # skips without torch
+        card = fake_card(Path(base))
+        for sample in sorted(SAMPLES.glob("*.jpg"))[:3]:
+            shutil.copy(sample, card / "DCIM" / "100CANON" / sample.name)
+        before = web.app.MOUNT_BASES, ingest.importer.IMPORT_ROOT
+        web.app.MOUNT_BASES = [Path(base)]
+        ingest.importer.IMPORT_ROOT = Path(base) / "Pictures"
+        try:
+            app = create_app(Path(base) / "catalog.db", Path(base) / "settings.json", Path(base) / "cache")
+            client = app.test_client()
+            listing = client.get("/api/folders", query_string={"path": str(card)}).get_json()
+            assert listing["photos"] == 3 and listing["import_to"], listing
+
+            #Import is only for cards
+            home_import = client.post("/api/run", json={"folder": str(Path(base) / "photos"), "import": True})
+            assert home_import.status_code == 400, home_import.status_code
+
+            assert client.post("/api/run", json={"folder": str(card), "import": True}).status_code == 202
+            final = wait_until(app.config["RUNNER"], lambda s: not s["running"])
+            assert final["exit_code"] == 0, final["log"][-10:]
+            assert final["finished"][0]["step"] == "import" and "3 new photos" in final["finished"][0]["result"], final["finished"]
+
+            #The catalog points at the copies, not the card
+            dest = ingest.importer.import_folder()
+            hashes = [p["hash"] for p in client.get("/api/events").get_json()["loose"]] + [
+                p["hash"] for e in client.get("/api/events").get_json()["events"] for b in e["bursts"] for p in b["photos"]]
+            paths = [client.get(f"/api/photos/{h}").get_json()["path"] for h in hashes]
+            assert len(paths) == 3 and all(Path(p).parent == dest for p in paths), paths
+        finally:
+            web.app.MOUNT_BASES, ingest.importer.IMPORT_ROOT = before
 
 
 if __name__ == "__main__":

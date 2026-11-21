@@ -10,6 +10,7 @@ from dataclasses import dataclass, field
 
 from config.config import Config
 from config.settings import Settings
+from utils.steps import fingerprint
 from detector.face_detector import FaceDetector
 from models.catalog import Catalog
 from pipeline.grouping import PersonGrouper
@@ -32,6 +33,7 @@ class FaceStep:
             return 0
 
         detector = FaceDetector(config=self.config, settings=self.settings)
+        settings_used = fingerprint(self.settings, "faces")
         done = 0
         for image_hash, boxes in track(pending.items(), "faces", self.show_progress,
                                    describe=lambda item: file_name(self.catalog.get_photo_path_by_hash(item[0]))):
@@ -46,5 +48,6 @@ class FaceStep:
                 continue
             for face in faces:
                 self.catalog.insert_face_box(face)
+            self.catalog.record_step_runs("faces", [image_hash], settings_used)
             done += 1
         return done

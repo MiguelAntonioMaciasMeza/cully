@@ -146,6 +146,17 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
          background: var(--text); color: var(--bg); }
 
 /* Run button and panel */
+/* Out-of-date banner: settings changed since the last run */
+.stale { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding: 10px 24px;
+         background: var(--rank-bg); color: var(--text); border-bottom: 1px solid var(--border); }
+.stale[hidden] { display: none; }
+.stale p { margin: 0; flex: 1 1 320px; }
+.stale-actions { display: flex; gap: 8px; }
+.stale button { border: 1px solid var(--rank); color: var(--rank); background: var(--surface); border-radius: 6px;
+                padding: 4px 12px; font-weight: 600; cursor: pointer; }
+.stale button:disabled { opacity: .5; cursor: default; }
+.stale button[hidden] { display: none; }
+
 .run-button { border: 1px solid var(--border); background: var(--surface); border-radius: 999px;
               padding: 3px 14px; font-weight: 600; cursor: pointer; }
 .run-button[data-running="1"] { border-color: var(--rank); color: var(--rank); background: var(--rank-bg); }
@@ -164,6 +175,9 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
 .run-progress { border-top: 1px solid var(--border); margin-top: 16px; }
 .run-progress[hidden] { display: none; }
 .run-panel p { margin: 0; }
+.places { display: flex; flex-wrap: wrap; gap: 6px; }
+.run-panel .place { border-radius: 999px; padding: 3px 12px; }
+.run-panel .place[aria-pressed="true"] { background: var(--text); color: var(--bg); border-color: var(--text); }
 .picker-bar { display: flex; gap: 8px; align-items: center; min-width: 0; }
 .folder-path { min-width: 0; overflow-wrap: anywhere; font: 12px/1.4 ui-monospace, monospace; color: var(--muted); }
 .folder-list { list-style: none; margin: 0; padding: 0; max-height: 40vh; overflow-y: auto;
@@ -192,7 +206,7 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
            font: 11px/1.45 ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; }
 
 @media (max-width: 600px) {
-  .top, main, .detail-bar, .detail-body { padding-left: 16px; padding-right: 16px; }
+  .top, main, .detail-bar, .detail-body, .stale { padding-left: 16px; padding-right: 16px; }
   .filters { margin-left: 0; }
   .event { padding: 12px; }
   .card { width: 120px; }

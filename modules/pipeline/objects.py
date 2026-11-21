@@ -13,6 +13,7 @@ import cv2
 
 from config.config import Config
 from config.settings import Settings
+from utils.steps import fingerprint
 from detector.one_shot_object import Objects
 from models.catalog import Catalog
 from utils.progress import file_name, track
@@ -33,6 +34,7 @@ class ObjectStep:
 
         detector = Objects(settings=self.settings, config=self.config)
         scale = float(self.settings.detection["object_scale"])
+        settings_used = fingerprint(self.settings, "objects")
         done = 0
         for image_hash in track(sorted(pending), "objects", self.show_progress,
                                    describe=lambda item: file_name(self.catalog.get_photo_path_by_hash(item))):
@@ -47,5 +49,7 @@ class ObjectStep:
             boxes = detector.detect_objects(resized, 1 / scale)
             if boxes:
                 self.catalog.insert_bounding_box(image_hash, boxes)
+            #Per photo, so a cancelled run still records what it finished
+            self.catalog.record_step_runs("objects", [image_hash], settings_used)
             done += 1
         return done
