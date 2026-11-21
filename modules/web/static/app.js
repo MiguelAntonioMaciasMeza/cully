@@ -1,7 +1,8 @@
 /*
 File: Cully/modules/web/static/app.js
 Description: The culling page. Renders /api/events, saves keep/reject through the API and shows the detail view.
-Also has the status labels, filters, keyboard shortcuts and the Run panel (start main.py, watch it live).
+Also has the status labels, filters, keyboard shortcuts, the Run panel (start main.py, watch it live),
+the out-of-date banner and the Settings panel.
 */
 "use strict";
 
@@ -18,6 +19,9 @@ const helpEl = document.getElementById("help");
 const runButton = document.getElementById("run-button");
 const runPanel = document.getElementById("run-panel");
 const runProgress = document.getElementById("run-progress");
+const settingsButton = document.getElementById("settings-button");
+const settingsPanel = document.getElementById("settings-panel");
+const settingsForm = document.getElementById("settings-form");
 
 const STATUS_LABELS = { keep: "✓ Kept", reject: "✕ Rejected" };
 
@@ -437,7 +441,7 @@ function onKey(event) {
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.target.closest("input, textarea, select")) return;
   if (isDetailOpen()) return;
-  if (event.target.closest("#run-panel")) return; //The panel has its own buttons
+  if (event.target.closest("#run-panel, #settings-panel")) return; //The panels have their own buttons
 
   const card = document.activeElement?.closest(".card") ?? null;
   //"?" is Shift+/ so don't lower-case it
@@ -475,6 +479,8 @@ function clock(seconds) {
 }
 
 function openRunPanel() {
+  closeSettings(false);
+  if (!settingsPanel.hidden) return; // kept open for unsaved changes
   runPanel.hidden = false;
   runButton.setAttribute("aria-expanded", "true");
   //Reload every time, so a card put in since shows up
@@ -482,10 +488,11 @@ function openRunPanel() {
   runPanel.querySelector(".close").focus();
 }
 
-function closeRunPanel() {
+function closeRunPanel(refocus = true) {
+  if (runPanel.hidden) return;
   runPanel.hidden = true;
   runButton.setAttribute("aria-expanded", "false");
-  runButton.focus();
+  if (refocus) runButton.focus();
 }
 
 /** Shows path's sub-folders in the picker. null means the home folder. */
@@ -569,6 +576,8 @@ function renderRun(state) {
   updateStart(state.running);
   $("stale-rerank").disabled = state.running;
   $("stale-redo").disabled = state.running;
+  settingsLocked = state.running;
+  updateSettingsButtons();
   if (!state.started_at) return; // nothing has run since the server started
   runProgress.hidden = false;
 
@@ -704,6 +713,9 @@ async function loadStaleness() {
   $("stale-redo").dataset.redo = redo ?? "";
   //A redo re-ranks too, so only offer Re-rank on its own
   $("stale-rerank").hidden = !(s.ranking || s.sharpness) || !!redo;
+  //The same two buttons in the Settings panel, which covers the banner on wide screens
+  $("settings-rerank").hidden = $("stale-rerank").hidden;
+  $("settings-redo").hidden = $("stale-redo").hidden;
 }
 
 $("stale-rerank").addEventListener("click", async () => {
@@ -741,6 +753,201 @@ runPanel.addEventListener("click", (event) => {
 });
 runPanel.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeRunPanel();
+});
+
+
+
+// ---------- Settings panel ----------
+
+const APPLIES = {
+  next_run: "Takes effect at the next ranking (Re-rank, seconds).",
+  new_photos: "Takes effect for new photos. Older ones show in the out-of-date banner (Redo detection).",
+  next_import: "Takes effect at the next card import.",
+};
+let settingsData = null; // last GET /api/settings
+let settingsLocked = false; // a run is going
+const dirty = new Set(); // keys changed in the form but not saved
+
+/** "group.key" or "key" -> the value inside a nested settings dict */
+function lookup(values, key) {
+  const [group, sub] = key.split(".");
+  return sub === undefined ? values[group] : values[group][sub];
+}
+
+function showValue(value) {
+  return typeof value === "boolean" ? (value ? "on" : "off") : String(value);
+}
+
+/** One form row for a setting: label, control, help, when it applies and the default. */
+function settingRow(key, info) {
+  const value = lookup(settingsData.values, key);
+  const fallback = lookup(settingsData.defaults, key);
+  const id = `set-${key.replace(".", "-")}`;
+  const row = el("div", "setting");
+  row.dataset.key = key;
+  if (value !== fallback) row.classList.add("changed");
+
+  let control;
+  if (info.type === "boolean") {
+    control = el("input");
+    control.type = "checkbox";
+    control.checked = value;
+  } else if (info.type === "choice") {
+    control = el("select");
+    for (const choice of info.choices) {
+      const option = el("option", "", choice);
+      option.value = choice;
+      control.append(option);
+    }
+    control.value = value;
+  } else {
+    control = el("input");
+    if (info.type === "text") {
+      control.type = "text";
+    } else {
+      control.type = "number";
+      control.min = info.min;
+      control.max = info.max;
+      control.step = info.step;
+      control.inputMode = info.type === "integer" ? "numeric" : "decimal";
+    }
+    control.value = value;
+  }
+  control.id = id;
+  control.name = key;
+
+  const label = el("label", "", info.label + (info.unit ? ` (${info.unit})` : ""));
+  label.htmlFor = id;
+  const help = el("p", "hint", info.help);
+  const meta = el("p", "hint muted", `${APPLIES[info.applies]} Default: ${showValue(fallback)}.`);
+  row.append(label, control, help, meta);
+  return row;
+}
+
+/** Builds the form from settingsData, one fieldset per group in the order they first appear. */
+function renderSettings() {
+  const groups = new Map();
+  for (const key of settingsData.order) {
+    const info = settingsData.info[key];
+    if (info.hidden) continue;
+    if (!groups.has(info.group)) groups.set(info.group, []);
+    groups.get(info.group).push(settingRow(key, info));
+  }
+  const sets = [...groups].map(([name, rows]) => {
+    const set = el("fieldset");
+    set.append(el("legend", "", name), ...rows);
+    return set;
+  });
+  const where = el("p", "meta", `Saved in ${settingsData.path}`);
+  settingsForm.replaceChildren(...sets, where);
+  dirty.clear();
+  updateSettingsButtons();
+}
+
+function updateSettingsButtons() {
+  $("settings-save").disabled = settingsLocked || !dirty.size;
+  $("settings-reset").disabled = settingsLocked;
+  $("settings-rerank").disabled = settingsLocked;
+  $("settings-redo").disabled = settingsLocked;
+  const lockNote = "A run is going. Settings can change once it's done.";
+  if (settingsLocked) settingsNote(lockNote, "");
+  else if ($("settings-note").textContent === lockNote) settingsNote("", "");
+}
+
+function settingsNote(text, kind) {
+  const note = $("settings-note");
+  note.textContent = text;
+  note.className = `settings-note ${kind}`;
+}
+
+async function openSettings() {
+  closeRunPanel(false);
+  settingsPanel.hidden = false;
+  settingsButton.setAttribute("aria-expanded", "true");
+  settingsNote("", "");
+  try {
+    settingsData = await api("GET", "/api/settings");
+    renderSettings();
+  } catch (error) {
+    settingsNote(`Couldn't load settings: ${error.message}`, "bad");
+  }
+  settingsPanel.querySelector(".close").focus();
+}
+
+function closeSettings(refocus = true) {
+  if (settingsPanel.hidden) return;
+  if (dirty.size && !confirm("Close without saving your changes?")) return;
+  dirty.clear();
+  settingsPanel.hidden = true;
+  settingsButton.setAttribute("aria-expanded", "false");
+  if (refocus) settingsButton.focus();
+}
+
+/** The changed fields as a partial update, e.g. {ranking: {eye_gate: 0.5}}. Throws on a bad number. */
+function changedSettings() {
+  const body = {};
+  for (const key of dirty) {
+    const info = settingsData.info[key];
+    const control = settingsForm.elements[key];
+    let value = control.value;
+    if (info.type === "boolean") value = control.checked;
+    else if (info.type === "integer" || info.type === "number") {
+      value = info.type === "integer" ? Number.parseInt(control.value, 10) : Number.parseFloat(control.value);
+      if (Number.isNaN(value)) throw new Error(`${info.label} needs a number`);
+    }
+    const [group, sub] = key.split(".");
+    if (sub === undefined) body[group] = value;
+    else (body[group] ??= {})[sub] = value;
+  }
+  return body;
+}
+
+settingsForm.addEventListener("input", (event) => {
+  const row = event.target.closest(".setting");
+  if (!row) return;
+  dirty.add(row.dataset.key);
+  row.classList.add("dirty");
+  settingsNote(`${plural(dirty.size, "unsaved change")}`, "");
+  updateSettingsButtons();
+});
+
+settingsForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!dirty.size || settingsLocked) return;
+  let body;
+  try {
+    body = changedSettings();
+    settingsData = await api("PUT", "/api/settings", body);
+  } catch (error) {
+    //The server's message names the setting and the allowed range
+    settingsNote(error.message.replace(/\[settings\.py\]\s*/g, ""), "bad");
+    return;
+  }
+  renderSettings();
+  settingsNote("Saved.", "good");
+  loadStaleness(); // the banner says what the change left out of date
+  loadSummary();
+});
+
+$("settings-reset").addEventListener("click", async () => {
+  if (!confirm("Put every setting back to its default?")) return;
+  try {
+    settingsData = await api("POST", "/api/settings/reset", {});
+  } catch (error) {
+    settingsNote(error.message, "bad");
+    return;
+  }
+  renderSettings();
+  settingsNote("All settings are back to their defaults.", "good");
+  loadStaleness();
+});
+
+$("settings-rerank").addEventListener("click", () => $("stale-rerank").click());
+$("settings-redo").addEventListener("click", () => $("stale-redo").click());
+settingsButton.addEventListener("click", () => (settingsPanel.hidden ? openSettings() : closeSettings()));
+settingsPanel.querySelector(".close").addEventListener("click", () => closeSettings());
+settingsPanel.addEventListener("keydown", (event) => {
+  if (event.key === "Escape") closeSettings();
 });
 
 load();

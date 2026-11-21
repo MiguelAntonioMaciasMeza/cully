@@ -17,6 +17,7 @@ The server listens on `127.0.0.1` only. `--host` with another address needs `--a
 - **Culling:** browse events, bursts and their Keep / Rest / Unranked groups. Mark photos keep or reject, accept a whole burst's suggestion, or open a photo to see its face crops. Press `?` for keyboard shortcuts.
 - **Run:** choose a folder under your home folder and start the pipeline. You can watch each step live and cancel. Results reload when ranking finishes.
 - **Memory cards:** a card shows up next to Home in the Run panel. "Copy and run" copies its new photos (sub-folders included) to `~/Pictures/Cully/<date>`, then runs on the copies, so the card can be wiped afterwards. Photos already in the catalog aren't copied again.
+- **Settings:** every setting with a short explanation, grouped as Detection, Grouping, Ranking, Models, Hardware and Import. Each says when a change takes effect and shows its default. Bad values are refused with the reason. Settings can't change while a run is going, since the run already read them.
 - **Out of date:** if settings change after photos were processed, a banner says what's out of date. **Re-rank now** redoes sharpness and ranking (seconds). **Redo detection** deletes the stored people and faces of the affected photos and finds them again; it asks first. Keep/reject choices are never touched. From the command line: `python main.py --redo objects` (or `faces`).
 
 ### Good to know

@@ -19,6 +19,7 @@
     <button type="button" data-filter="unranked" aria-pressed="false">Unranked</button>
   </nav>
   <button type="button" id="run-button" class="run-button" aria-expanded="false" aria-controls="run-panel">Run</button>
+  <button type="button" id="settings-button" class="run-button" aria-expanded="false" aria-controls="settings-panel">Settings</button>
   <button type="button" class="help-button" popovertarget="help" aria-label="Keyboard shortcuts">?</button>
   <div id="help" class="help" popover>
     <h2>Keyboard shortcuts</h2>
@@ -91,6 +92,21 @@
     <div id="detail-faces" class="faces"></div>
   </div>
 </dialog>
+
+<aside id="settings-panel" class="run-panel settings-panel" aria-labelledby="settings-title" hidden>
+  <div class="run-head">
+    <h2 id="settings-title">Settings</h2>
+    <button type="button" class="close" aria-label="Close">✕</button>
+  </div>
+  <form id="settings-form" class="settings-form" novalidate></form>
+  <div class="settings-actions">
+    <p id="settings-note" class="settings-note" role="status"></p>
+    <button type="submit" form="settings-form" id="settings-save" class="primary" disabled>Save</button>
+    <button type="button" id="settings-reset">Reset all</button>
+    <button type="button" id="settings-rerank" hidden>Re-rank now</button>
+    <button type="button" id="settings-redo" hidden>Redo detection…</button>
+  </div>
+</aside>
 
 <div id="toast" class="toast" role="status" aria-live="polite" popover="manual"></div>
 

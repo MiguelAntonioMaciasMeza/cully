@@ -20,9 +20,9 @@ import tempfile
 import time
 
 from utils.steps import default_steps
-import ingest.importer
 import web.app
-from ingest.importer import import_photos
+from config.settings import Settings
+from ingest.importer import import_folder, import_photos
 from web.app import create_app
 from web.runner import Runner
 
@@ -235,9 +235,12 @@ def test_card_import_run():
         card = fake_card(Path(base))
         for sample in sorted(SAMPLES.glob("*.jpg"))[:3]:
             shutil.copy(sample, card / "DCIM" / "100CANON" / sample.name)
-        before = web.app.MOUNT_BASES, ingest.importer.IMPORT_ROOT
+        before = web.app.MOUNT_BASES
         web.app.MOUNT_BASES = [Path(base)]
-        ingest.importer.IMPORT_ROOT = Path(base) / "Pictures"
+        #Imports go where the settings say, here a temp folder
+        settings = Settings(path=Path(base) / "settings.json")
+        settings.update({"import_folder": str(Path(base) / "Pictures")})
+        settings.save()
         try:
             app = create_app(Path(base) / "catalog.db", Path(base) / "settings.json", Path(base) / "cache")
             client = app.test_client()
@@ -254,13 +257,13 @@ def test_card_import_run():
             assert final["finished"][0]["step"] == "import" and "3 new photos" in final["finished"][0]["result"], final["finished"]
 
             #The catalog points at the copies, not the card
-            dest = ingest.importer.import_folder()
+            dest = import_folder(Path(base) / "Pictures")
             hashes = [p["hash"] for p in client.get("/api/events").get_json()["loose"]] + [
                 p["hash"] for e in client.get("/api/events").get_json()["events"] for b in e["bursts"] for p in b["photos"]]
             paths = [client.get(f"/api/photos/{h}").get_json()["path"] for h in hashes]
             assert len(paths) == 3 and all(Path(p).parent == dest for p in paths), paths
         finally:
-            web.app.MOUNT_BASES, ingest.importer.IMPORT_ROOT = before
+            web.app.MOUNT_BASES = before
 
 
 if __name__ == "__main__":

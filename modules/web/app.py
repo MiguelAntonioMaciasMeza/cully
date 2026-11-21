@@ -17,7 +17,7 @@ from flask import Flask, Response, abort, current_app, g, jsonify, render_templa
 from platformdirs import user_cache_dir
 from werkzeug.exceptions import HTTPException
 
-from config.settings import Settings
+from config.settings import DEFAULT_SETTINGS, SETTINGS_INFO, Settings
 from ingest.exif_reader import SUPPORTED_SUFFIXES
 from ingest.importer import card_photos, import_folder
 from models.catalog import Catalog
@@ -386,7 +386,7 @@ def register_routes(app: Flask) -> None:
                 steps = default_steps(embeddings, importing=True)
             elif "import" not in steps:
                 abort(400, "An import needs the import step")
-            import_to = import_folder()
+            import_to = import_folder(get_settings().import_folder)
         elif "import" in steps:
             abort(400, "The import step needs \"import\": true")
 
@@ -394,6 +394,52 @@ def register_routes(app: Flask) -> None:
             abort(400, "This server can't run the pipeline. Start it with venv-main.")
         try:
             get_runner().start(Path(folder) if folder else None, steps, embeddings, import_to, redo)
+        except RunBusy:
+            abort(409, "A run is already going")
+        return get_runner().snapshot(), 202
+
+    def settings_json(settings: Settings) -> dict:
+        """Returns back what the settings form needs: current values, defaults and how to show each"""
+        #Flask sorts JSON keys, so the form's order is sent as a list
+        return {"values": settings.to_dict(), "defaults": DEFAULT_SETTINGS, "info": SETTINGS_INFO,
+                "order": list(SETTINGS_INFO), "path": str(settings.path)}
+
+    def refuse_while_running() -> None:
+        #A run read its settings when it started, changing them mid-run would make the results disagree
+        if get_runner().snapshot()["running"]:
+            abort(409, "A run is going. Change settings once it's done.")
+
+    @app.get("/api/settings")
+    def read_settings():
+        return settings_json(get_settings())
+
+    @app.put("/api/settings")
+    def update_settings():
+        """Partial update, for example {"ranking": {"eye_gate": 0.5}}. 400 with the reason on a bad value"""
+        body = json_body()
+        refuse_while_running()
+        settings = get_settings()
+        try:
+            settings.update(body)
+        except ValueError as error:
+            abort(400, str(error))
+        settings.save()
+        return settings_json(settings)
+
+    @app.post("/api/settings/reset")
+    def reset_settings():
+        refuse_while_running()
+        settings = get_settings()
+        settings.reset()
+        return settings_json(settings)
+
+    @app.post("/api/rerank")
+    def rerank():
+        """Redoes sharpness and ranking for the whole catalog with the current settings (seconds)"""
+        if not pipeline_ready():
+            abort(400, "This server can't run the pipeline. Start it with venv-main.")
+        try:
+            get_runner().start(None, ["sharpness", "ranking"])
         except RunBusy:
             abort(409, "A run is already going")
         return get_runner().snapshot(), 202
@@ -472,7 +518,7 @@ def register_routes(app: Flask) -> None:
             "parent": str(path.parent) if path != root else None,
             "photos": count_photos(path, on_card),
             "folders": entries,
-            "import_to": str(import_folder()) if on_card else None,
+            "import_to": str(import_folder(get_settings().import_folder)) if on_card else None,
             "root": str(root),
             "roots": [{"name": "Home" if r == home else r.name, "path": str(r)} for r in roots],
         }

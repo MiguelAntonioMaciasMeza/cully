@@ -14,13 +14,11 @@ from pathlib import Path
 from ingest.exif_reader import SUPPORTED_SUFFIXES
 from utils.progress import track
 
-# Where imports land, one folder per day. A constant until the settings page can change it
-IMPORT_ROOT = Path.home() / "Pictures" / "Cully"
 
-
-def import_folder(day: date | None = None) -> Path:
-    """Returns back the folder photos imported on day (default today) are copied into"""
-    return IMPORT_ROOT / (day or date.today()).isoformat()
+def import_folder(root: str | Path, day: date | None = None) -> Path:
+    """Returns back the folder inside root (the import_folder setting) that photos imported on day
+    (default today) are copied into"""
+    return Path(root).expanduser() / (day or date.today()).isoformat()
 
 
 def card_photos(source: Path) -> list[Path]:

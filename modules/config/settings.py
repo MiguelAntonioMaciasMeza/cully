@@ -55,6 +55,76 @@ DEFAULT_SETTINGS = {
     # object_scale: images are shrunk by this before YOLO (used by ObjectStep)
     # person_threshold: YOLO confidence for person boxes, other objects use object_threshold
     "detection": {"object_scale": 0.5, "person_threshold": 50},
+    # Where photos copied off a memory card go, one folder per day inside it
+    "import_folder": "~/Pictures/Cully",
+}
+
+# How the settings page shows each setting, by "key" or "group.key". Every setting needs an entry,
+# check_settings fails otherwise. applies: when a change takes effect
+#   next_run    the next ranking (Re-rank, seconds)
+#   new_photos  photos processed from now on; older ones show up in the out-of-date banner (Redo detection)
+#   next_import the next memory card import
+SETTINGS_INFO = {
+    "YOLOModel": {"group": "Detection", "label": "Person detector model", "type": "choice",
+                  "choices": [m.value for m in YOLOModel], "applies": "new_photos",
+                  "help": "The YOLO model that finds people in each photo."},
+    "detection.person_threshold": {"group": "Detection", "label": "Person confidence", "type": "integer",
+                                   "min": 0, "max": 100, "step": 1, "unit": "%", "applies": "new_photos",
+                                   "help": "How sure the detector must be that a box is a person. Lower finds more people, and more mistakes."},
+    "object_threshold": {"group": "Detection", "label": "Other object confidence", "type": "integer",
+                         "min": 0, "max": 100, "step": 1, "unit": "%", "applies": "new_photos",
+                         "help": "The same, for everything that isn't a person."},
+    "detection.object_scale": {"group": "Detection", "label": "Detection image size", "type": "number",
+                               "min": 0.05, "max": 1, "step": 0.05, "applies": "new_photos",
+                               "help": "Photos are shrunk by this before detection. Smaller is faster but can miss small people."},
+    "face_threshold": {"group": "Detection", "label": "Face confidence", "type": "integer",
+                       "min": 0, "max": 100, "step": 1, "unit": "%", "applies": "new_photos",
+                       "help": "Faces below this are ignored, they're mostly the back of a head or clothing. Also used by ranking."},
+    "grouping.burst_gap_seconds": {"group": "Grouping", "label": "Burst gap", "type": "integer",
+                                   "min": 1, "max": 600, "step": 1, "unit": "s", "applies": "next_run",
+                                   "help": "Shots closer together than this are one burst."},
+    "grouping.event_gap_minutes": {"group": "Grouping", "label": "Event gap", "type": "integer",
+                                   "min": 1, "max": 1440, "step": 1, "unit": "min", "applies": "next_run",
+                                   "help": "A pause longer than this starts a new event."},
+    "ranking.eye_check": {"group": "Ranking", "label": "Check eyes", "type": "boolean", "applies": "next_run",
+                          "help": "Rank closed eyes lower. Turn off for posed eyes-down shots, then only sharpness counts."},
+    "ranking.eye_gate": {"group": "Ranking", "label": "Eye gate", "type": "number",
+                         "min": 0, "max": 1, "step": 0.05, "applies": "next_run",
+                         "help": "How far below a person's most open eyes in the burst still counts as open."},
+    "ranking.ear_floor": {"group": "Ranking", "label": "Closed-eye floor", "type": "number",
+                          "min": 0, "max": 1, "step": 0.01, "applies": "next_run",
+                          "help": "Eyes more closed than this always count as closed."},
+    "ranking.face_match_iou": {"group": "Ranking", "label": "Same-person overlap", "type": "number",
+                               "min": 0, "max": 1, "step": 0.05, "applies": "next_run",
+                               "help": "How much two face boxes must overlap across frames to be the same person."},
+    "ranking.candidate_margin": {"group": "Ranking", "label": "Candidate margin", "type": "number",
+                                 "min": 0, "max": 1, "step": 0.01, "applies": "next_run",
+                                 "help": "Besides the best photo, eyes-open photos scoring at least this share of the best are candidates too."},
+    "ranking.max_candidates": {"group": "Ranking", "label": "Most candidates per burst", "type": "integer",
+                               "min": 0, "max": 100, "step": 1, "applies": "next_run",
+                               "help": "0 means no limit."},
+    "models.sharpness": {"group": "Models", "label": "Sharpness method", "type": "choice",
+                         "choices": ["laplacian"], "applies": "next_run",
+                         "help": "How each face crop's sharpness is measured."},
+    "crop_size.sharpness": {"group": "Models", "label": "Sharpness crop size", "type": "integer",
+                            "min": 50, "max": 2000, "step": 10, "unit": "px", "applies": "next_run",
+                            "help": "Face crops are scaled to this size (longest side) before sharpness is measured."},
+    "models.embedding": {"group": "Models", "label": "Face embedding model", "type": "choice",
+                         "choices": ["Facenet512", "Facenet", "ArcFace", "VGG-Face", "SFace", "GhostFaceNet"],
+                         "applies": "next_run",
+                         "help": "Used only when faces are embedded (the Run panel checkbox), ranking doesn't need it."},
+    "models.embedding_metric": {"group": "Models", "label": "Embedding distance", "type": "choice",
+                                "choices": ["cosine", "euclidean", "euclidean_l2"], "applies": "next_run",
+                                "help": "How two face embeddings are compared."},
+    "hardware.device": {"group": "Hardware", "label": "Device", "type": "text", "applies": "next_run",
+                        "help": "cuda (graphics card), cuda:1 for a second card, or cpu. Only the person detector uses it."},
+    "import_folder": {"group": "Import", "label": "Import folder", "type": "text", "applies": "next_import",
+                      "help": "Photos copied off a memory card go into a folder per day inside this one."},
+    # Not wired up yet, kept off the page
+    "saliency_scale": {"hidden": True},
+    "saliency_model": {"hidden": True},
+    "min_dimension.saliency": {"hidden": True},
+    "min_dimension.face": {"hidden": True},
 }
 
 settings_path = Path.home() / ".config" / "cully" / "settings.json"
@@ -66,7 +136,7 @@ def _checked(value,default):
     if type(default) is float and type(value) is int:
         return float(value)
     if type(value) is not type(default):
-        raise TypeError(f"expected type {type(type(default).__name__)}, got {value}")
+        raise TypeError(f"expected {type(default).__name__}, got {value!r}")
 
     return value
 @dataclass
@@ -87,6 +157,7 @@ class Settings:
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["models"]))
     hardware: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["hardware"]))
     detection: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["detection"]))
+    import_folder: str = field(default=DEFAULT_SETTINGS["import_folder"])
 
     def __post_init__(self):
         # Check if directory exists, if not create
@@ -149,11 +220,31 @@ class Settings:
 
         for setting, value in self.grouping.items():
             if value <= 0:
-                raise ValueError(f"[setting.spy]{setting} must be above 0, got {value}")
+                raise ValueError(f"[settings.py]{setting} must be above 0, got {value}")
         if self.ranking["max_candidates"] < 0:
             raise ValueError(f"[settings.py]max_candidates must be 0 or more")
         if not 0 < self.detection["object_scale"] <= 1:
             raise ValueError(f"[settings.py]object scale must above 0 and no more than 1")
+        if self.crop_size["sharpness"] < 1:
+            raise ValueError("[settings.py]crop_size.sharpness must be 1 or more")
+        if not self.import_folder.strip():
+            raise ValueError("[settings.py]import_folder can't be empty")
+        #Settings with a fixed list of values
+        for key, info in SETTINGS_INFO.items():
+            if info.get("type") == "choice" and self.value(key) not in info["choices"]:
+                raise ValueError(f"[settings.py]{key} must be one of {', '.join(info['choices'])}, got {self.value(key)!r}")
+
+    def value(self, key: str):
+        """Returns back one setting by "key" or "group.key" """
+        group, _, sub_key = key.partition(".")
+        value = getattr(self, group)
+        return value[sub_key] if sub_key else value
+
+    def reset(self) -> None:
+        """Puts every setting back to its default and saves"""
+        for key, default in DEFAULT_SETTINGS.items():
+            setattr(self, key, copy.deepcopy(default))
+        self.save()
     
     def to_dict(self) -> dict:
         """Returns back settings in a dict structure, excludes file path to settings"""
@@ -167,9 +258,15 @@ class Settings:
         before = self.to_dict()
         try:
             for key,value in values.items():
+                if key not in DEFAULT_SETTINGS:
+                    raise ValueError(f"unknown setting: {key}")
                 default = DEFAULT_SETTINGS[key]
                 if isinstance(default, dict):
+                    if not isinstance(value, dict):
+                        raise TypeError(f"{key} is a group, send its settings as an object")
                     for sub_key, sub_value in value.items():
+                        if sub_key not in default:
+                            raise ValueError(f"unknown setting: {key}.{sub_key}")
                         getattr(self,key)[sub_key] = _checked(sub_value, default[sub_key])
                 else:
                     setattr(self, key, _checked(value,default))

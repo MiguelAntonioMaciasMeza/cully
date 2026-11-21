@@ -284,6 +284,73 @@ def test_status_survives_ranking_rerun():
         assert statuses(client) == before, statuses(client)
 
 
+# ---------- Settings ----------
+
+def put_settings(client, body):
+    return client.put("/api/settings", json=body, headers={"Origin": ORIGIN})
+
+
+def test_settings_read_and_update():
+    with tempfile.TemporaryDirectory() as folder:
+        client, *_ = make_app(Path(folder))
+        data = client.get("/api/settings").get_json()
+        assert set(data) == {"values", "defaults", "info", "order", "path"}, set(data)
+        assert data["values"] == data["defaults"], "a fresh settings file has the defaults"
+
+        response = put_settings(client, {"ranking": {"candidate_margin": 0.8}, "face_threshold": 60})
+        assert response.status_code == 200, response.get_json()
+        #Saved to the file, so the next request (a new Settings) sees it
+        values = client.get("/api/settings").get_json()["values"]
+        assert values["ranking"]["candidate_margin"] == 0.8 and values["face_threshold"] == 60, values
+        assert values["ranking"]["eye_gate"] == data["defaults"]["ranking"]["eye_gate"], "others untouched"
+
+
+def test_settings_bad_values():
+    with tempfile.TemporaryDirectory() as folder:
+        client, *_ = make_app(Path(folder))
+        bad = [
+            {"ranking": {"eye_gate": 1.5}},          # out of range
+            {"face_threshold": "high"},              # wrong type
+            {"nope": 1},                             # unknown key
+            {"ranking": {"nope": 1}},                # unknown key in a group
+            {"models": {"sharpness": "sobel"}},      # not one of the choices
+        ]
+        for body in bad:
+            response = put_settings(client, body)
+            assert response.status_code == 400, (body, response.status_code)
+            assert response.get_json()["error"].startswith("[settings.py]"), response.get_json()
+        unknown = put_settings(client, {"nope": 1}).get_json()["error"]
+        assert "unknown setting: nope" in unknown, unknown
+        #Nothing was saved by the bad requests
+        data = client.get("/api/settings").get_json()
+        assert data["values"] == data["defaults"]
+        assert client.put("/api/settings", data="{}").status_code == 415
+
+
+def test_settings_reset():
+    with tempfile.TemporaryDirectory() as folder:
+        client, *_ = make_app(Path(folder))
+        put_settings(client, {"grouping": {"burst_gap_seconds": 9}})
+        response = client.post("/api/settings/reset", json={}, headers={"Origin": ORIGIN})
+        assert response.status_code == 200, response.status_code
+        data = client.get("/api/settings").get_json()
+        assert data["values"] == data["defaults"], data["values"]["grouping"]
+
+
+def test_settings_locked_while_running():
+    with tempfile.TemporaryDirectory() as folder:
+        client, *_ = make_app(Path(folder))
+        runner = client.application.config["RUNNER"]
+        runner.state.running = True  # pretend, no real run needed
+        try:
+            assert put_settings(client, {"face_threshold": 60}).status_code == 409
+            assert client.post("/api/settings/reset", json={}).status_code == 409
+            assert client.post("/api/rerank", json={}).status_code in (400, 409)  # 400 without torch
+        finally:
+            runner.state.running = False
+        assert client.get("/api/settings").get_json()["values"]["face_threshold"] == 70
+
+
 # ---------- Real catalog (only with --catalog) ----------
 
 def test_real_catalog_routes():
@@ -310,6 +377,32 @@ def test_real_catalog_status_survives_ranking():
         before = statuses(client)
         rerun_ranking(copy)
         assert statuses(client) == before
+
+
+def test_real_catalog_rerank_follows_settings():
+    if REAL_CATALOG is None:
+        raise Skip("no --catalog given")
+    if importlib.util.find_spec("torch") is None:
+        raise Skip("re-ranking needs torch, run this in venv-main")
+    with tempfile.TemporaryDirectory() as folder:
+        client, _ = make_real_app(Path(folder))
+        runner = client.application.config["RUNNER"]
+
+        def rerank() -> int:
+            assert client.post("/api/rerank", json={}).status_code == 202
+            end = time.monotonic() + 120
+            while runner.snapshot()["running"]:
+                assert time.monotonic() < end, "re-rank timed out"
+                time.sleep(0.2)
+            assert runner.snapshot()["exit_code"] == 0, runner.snapshot()["log"][-10:]
+            return client.get("/api/summary").get_json()["candidates"]
+
+        before = rerank()
+        #A lower margin lets more photos close to the best one count as candidates
+        put_settings(client, {"ranking": {"candidate_margin": 0.5}})
+        after = rerank()
+        assert after > before, (before, after)
+        assert client.get("/api/staleness").get_json()["any"] is False
 
 
 if __name__ == "__main__":

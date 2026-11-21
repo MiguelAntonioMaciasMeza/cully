@@ -13,7 +13,7 @@ from pathlib import Path
 import json
 import tempfile
 
-from config.settings import DEFAULT_SETTINGS, Settings
+from config.settings import DEFAULT_SETTINGS, SETTINGS_INFO, Settings
 
 
 def fresh(folder: str) -> Settings:
@@ -102,6 +102,47 @@ def test_bad_file_raises():
             raise AssertionError("candidate_margin 2 should raise")
         except ValueError:
             pass
+
+
+def test_every_setting_described():
+    #"key" or "group.key" for every setting, the way SETTINGS_INFO names them
+    leaves = set()
+    for key, value in DEFAULT_SETTINGS.items():
+        if isinstance(value, dict):
+            leaves.update(f"{key}.{sub_key}" for sub_key in value)
+        else:
+            leaves.add(key)
+    assert leaves - set(SETTINGS_INFO) == set(), f"no description: {leaves - set(SETTINGS_INFO)}"
+    assert set(SETTINGS_INFO) - leaves == set(), f"describes no setting: {set(SETTINGS_INFO) - leaves}"
+
+    for key, info in SETTINGS_INFO.items():
+        if info.get("hidden"):
+            continue
+        for field in ("group", "label", "type", "help", "applies"):
+            assert field in info, f"{key} has no {field}"
+        assert info["applies"] in ("next_run", "new_photos", "next_import"), key
+        if info["type"] in ("number", "integer"):
+            assert info["min"] <= default_value(key) <= info["max"], key
+        if info["type"] == "choice":
+            assert default_value(key) in info["choices"], key
+
+
+def default_value(key: str):
+    """Returns back the default of "key" or "group.key" """
+    group, _, sub_key = key.partition(".")
+    return DEFAULT_SETTINGS[group][sub_key] if sub_key else DEFAULT_SETTINGS[group]
+
+
+def test_unknown_and_reset():
+    with tempfile.TemporaryDirectory() as folder:
+        settings = fresh(folder)
+        for values in ({"nope": 1}, {"ranking": {"nope": 1}}, {"ranking": 0.5}, {"models": {"sharpness": "sobel"}}):
+            assert raises(settings, values), values
+        settings.update({"ranking": {"eye_gate": 0.4}, "import_folder": "/tmp/photos"})
+        settings.save()
+        settings.reset()
+        assert settings.to_dict() == DEFAULT_SETTINGS
+        assert json.loads(settings.path.read_text()) == DEFAULT_SETTINGS
 
 
 if __name__ == "__main__":
