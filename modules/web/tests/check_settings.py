@@ -120,11 +120,28 @@ def test_every_setting_described():
             continue
         for field in ("group", "label", "type", "help", "applies"):
             assert field in info, f"{key} has no {field}"
-        assert info["applies"] in ("next_run", "new_photos", "next_import"), key
+        assert info["applies"] in ("next_run", "new_photos", "next_import", "next_export"), key
         if info["type"] in ("number", "integer"):
             assert info["min"] <= default_value(key) <= info["max"], key
         if info["type"] == "choice":
             assert default_value(key) in info["choices"], key
+
+
+def test_basic_tab():
+    basic = [key for key, info in SETTINGS_INFO.items() if info.get("basic")]
+    #A short list, every one shown and explained
+    assert 4 <= len(basic) <= 10, basic
+    for key in basic:
+        assert not SETTINGS_INFO[key].get("hidden") and SETTINGS_INFO[key]["help"], key
+    assert "export_folder" in basic and "import_folder" in basic, basic
+
+
+def test_folders_cant_be_empty():
+    with tempfile.TemporaryDirectory() as folder:
+        settings = fresh(folder)
+        assert raises(settings, {"export_folder": "  "})
+        assert raises(settings, {"import_folder": ""})
+        assert settings.export_folder == "~/Pictures/Cully/Exports"
 
 
 def default_value(key: str):

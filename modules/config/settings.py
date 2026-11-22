@@ -57,6 +57,8 @@ DEFAULT_SETTINGS = {
     "detection": {"object_scale": 0.5, "person_threshold": 50},
     # Where photos copied off a memory card go, one folder per day inside it
     "import_folder": "~/Pictures/Cully",
+    # Where Export copies the kept photos, one folder per event inside it
+    "export_folder": "~/Pictures/Cully/Exports",
 }
 
 # How the settings page shows each setting, by "key" or "group.key". Every setting needs an entry,
@@ -64,6 +66,8 @@ DEFAULT_SETTINGS = {
 #   next_run    the next ranking (Re-rank, seconds)
 #   new_photos  photos processed from now on; older ones show up in the out-of-date banner (Redo detection)
 #   next_import the next memory card import
+#   next_export the next export
+# basic: shown on the Basic tab too, Advanced shows everything
 SETTINGS_INFO = {
     "YOLOModel": {"group": "Detection", "label": "Person detector model", "type": "choice",
                   "choices": [m.value for m in YOLOModel], "applies": "new_photos",
@@ -81,13 +85,14 @@ SETTINGS_INFO = {
                        "min": 0, "max": 100, "step": 1, "unit": "%", "applies": "new_photos",
                        "help": "Faces below this are ignored, they're mostly the back of a head or clothing. Also used by ranking."},
     "grouping.burst_gap_seconds": {"group": "Grouping", "label": "Burst gap", "type": "integer",
-                                   "min": 1, "max": 600, "step": 1, "unit": "s", "applies": "next_run",
-                                   "help": "Shots closer together than this are one burst."},
+                                   "min": 1, "max": 600, "step": 1, "unit": "s", "applies": "next_run", "basic": True,
+                                   "help": "Shots taken closer together than this count as one burst, and Cully picks the best of each burst."},
     "grouping.event_gap_minutes": {"group": "Grouping", "label": "Event gap", "type": "integer",
-                                   "min": 1, "max": 1440, "step": 1, "unit": "min", "applies": "next_run",
-                                   "help": "A pause longer than this starts a new event."},
+                                   "min": 1, "max": 1440, "step": 1, "unit": "min", "applies": "next_run", "basic": True,
+                                   "help": "A break in shooting longer than this starts a new event."},
     "ranking.eye_check": {"group": "Ranking", "label": "Check eyes", "type": "boolean", "applies": "next_run",
-                          "help": "Rank closed eyes lower. Turn off for posed eyes-down shots, then only sharpness counts."},
+                          "basic": True,
+                          "help": "Rank photos with closed eyes lower. Turn off for shots where people look down on purpose, then only sharpness counts."},
     "ranking.eye_gate": {"group": "Ranking", "label": "Eye gate", "type": "number",
                          "min": 0, "max": 1, "step": 0.05, "applies": "next_run",
                          "help": "How far below a person's most open eyes in the burst still counts as open."},
@@ -98,11 +103,11 @@ SETTINGS_INFO = {
                                "min": 0, "max": 1, "step": 0.05, "applies": "next_run",
                                "help": "How much two face boxes must overlap across frames to be the same person."},
     "ranking.candidate_margin": {"group": "Ranking", "label": "Candidate margin", "type": "number",
-                                 "min": 0, "max": 1, "step": 0.01, "applies": "next_run",
-                                 "help": "Besides the best photo, eyes-open photos scoring at least this share of the best are candidates too."},
+                                 "min": 0, "max": 1, "step": 0.01, "applies": "next_run", "basic": True,
+                                 "help": "How close to the best photo another must score to also be suggested (0.9 = within 10%). Lower suggests more photos."},
     "ranking.max_candidates": {"group": "Ranking", "label": "Most candidates per burst", "type": "integer",
-                               "min": 0, "max": 100, "step": 1, "applies": "next_run",
-                               "help": "0 means no limit."},
+                               "min": 0, "max": 100, "step": 1, "applies": "next_run", "basic": True,
+                               "help": "The most photos suggested from one burst. 0 means no limit."},
     "models.sharpness": {"group": "Models", "label": "Sharpness method", "type": "choice",
                          "choices": ["laplacian"], "applies": "next_run",
                          "help": "How each face crop's sharpness is measured."},
@@ -118,8 +123,12 @@ SETTINGS_INFO = {
                                 "help": "How two face embeddings are compared."},
     "hardware.device": {"group": "Hardware", "label": "Device", "type": "text", "applies": "next_run",
                         "help": "cuda (graphics card), cuda:1 for a second card, or cpu. Only the person detector uses it."},
-    "import_folder": {"group": "Import", "label": "Import folder", "type": "text", "applies": "next_import",
+    "import_folder": {"group": "Folders", "label": "Import folder", "type": "text", "applies": "next_import",
+                      "basic": True,
                       "help": "Photos copied off a memory card go into a folder per day inside this one."},
+    "export_folder": {"group": "Folders", "label": "Export folder", "type": "text", "applies": "next_export",
+                      "basic": True,
+                      "help": "Export copies your kept photos here, one folder per event."},
     # Not wired up yet, kept off the page
     "saliency_scale": {"hidden": True},
     "saliency_model": {"hidden": True},
@@ -158,6 +167,7 @@ class Settings:
     hardware: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["hardware"]))
     detection: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["detection"]))
     import_folder: str = field(default=DEFAULT_SETTINGS["import_folder"])
+    export_folder: str = field(default=DEFAULT_SETTINGS["export_folder"])
 
     def __post_init__(self):
         # Check if directory exists, if not create
@@ -227,8 +237,9 @@ class Settings:
             raise ValueError(f"[settings.py]object scale must above 0 and no more than 1")
         if self.crop_size["sharpness"] < 1:
             raise ValueError("[settings.py]crop_size.sharpness must be 1 or more")
-        if not self.import_folder.strip():
-            raise ValueError("[settings.py]import_folder can't be empty")
+        for setting in ("import_folder", "export_folder"):
+            if not self.value(setting).strip():
+                raise ValueError(f"[settings.py]{setting} can't be empty")
         #Settings with a fixed list of values
         for key, info in SETTINGS_INFO.items():
             if info.get("type") == "choice" and self.value(key) not in info["choices"]:

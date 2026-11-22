@@ -351,6 +351,55 @@ def test_settings_locked_while_running():
         assert client.get("/api/settings").get_json()["values"]["face_threshold"] == 70
 
 
+# ---------- Export ----------
+
+def wait_for_run(client, timeout: float = 60) -> dict:
+    """Returns back the run state once the run has ended"""
+    runner = client.application.config["RUNNER"]
+    end = time.monotonic() + timeout
+    state = runner.snapshot()
+    while state["running"]:
+        assert time.monotonic() < end, f"timed out, last state: {state}"
+        state = runner.wait_for_change(state["version"], 5)
+    return state
+
+
+def test_export_kept_photos():
+    with tempfile.TemporaryDirectory() as folder:
+        client, _, hashes, _ = make_app(Path(folder))
+        out = Path(folder) / "exports"
+        put_settings(client, {"export_folder": str(out)})
+        #Nothing kept yet
+        assert client.get("/api/export").get_json() == {"kept": 0, "undecided": 1, "folder": str(out)}
+        assert client.post("/api/export", json={}).status_code == 400
+
+        #Keep the 2 photos that aren't suggestions, the suggestion stays undecided
+        for image_hash in hashes[1:]:
+            put_status(client, image_hash, {"status": "keep"})
+        assert client.get("/api/export").get_json()["kept"] == 2
+
+        runner = client.application.config["RUNNER"]
+        runner.state.running = True  # pretend
+        try:
+            assert client.post("/api/export", json={}).status_code == 409
+        finally:
+            runner.state.running = False
+
+        #No torch needed, so this runs in either venv
+        assert client.post("/api/export", json={}).status_code == 202
+        final = wait_for_run(client)
+        assert final["exit_code"] == 0, final["log"][-10:]
+        assert final["steps"] == ["export"] and "2 of 2" in final["finished"][0]["result"], final["finished"]
+        event = out / "2026-01-01 10-00"
+        assert sorted(p.name for p in event.iterdir()) == ["burst_1.jpg", "burst_2.jpg"], list(out.rglob("*"))
+
+        #Exporting again copies nothing new
+        client.post("/api/export", json={})
+        again = wait_for_run(client)
+        assert "0 of 2" in again["finished"][0]["result"], again["finished"]
+        assert len(list(event.iterdir())) == 2
+
+
 # ---------- Real catalog (only with --catalog) ----------
 
 def test_real_catalog_routes():

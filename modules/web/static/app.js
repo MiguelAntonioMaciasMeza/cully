@@ -2,7 +2,7 @@
 File: Cully/modules/web/static/app.js
 Description: The culling page. Renders /api/events, saves keep/reject through the API and shows the detail view.
 Also has the status labels, filters, keyboard shortcuts, the Run panel (start main.py, watch it live),
-the out-of-date banner and the Settings panel.
+the out-of-date banner, the Settings panel (Basic / Advanced tabs) and Export.
 */
 "use strict";
 
@@ -578,10 +578,14 @@ function renderRun(state) {
   $("stale-redo").disabled = state.running;
   settingsLocked = state.running;
   updateSettingsButtons();
+  $("export-start").disabled = state.running || !exportReady;
   if (!state.started_at) return; // nothing has run since the server started
   runProgress.hidden = false;
 
-  $("run-folder").textContent = `${state.running ? "Running on" : "Last run on"} ${state.folder ?? "the whole catalog"}`;
+  const exporting = state.steps.includes("export");
+  $("run-folder").textContent = exporting
+    ? (state.running ? "Exporting kept photos" : "Last export")
+    : `${state.running ? "Running on" : "Last run on"} ${state.folder ?? "the whole catalog"}`;
   $("run-steps").replaceChildren(...state.steps.map((step) => stepLine(step, state)));
 
   //A bar with no value shows as "busy", for model loading before the first photo
@@ -618,7 +622,8 @@ function renderRun(state) {
   } else {
     const s = state.summary;
     result.classList.add("good");
-    result.textContent = s
+    //Runs without ranking (export) have no counts
+    result.textContent = s && "bursts" in s
       ? `Done: ${plural(s.bursts, "burst")}, ${plural(s.candidates, "candidate")}, ${s.unranked} unranked.`
       : "Done.";
     log.hidden = true;
@@ -785,6 +790,7 @@ function settingRow(key, info) {
   const id = `set-${key.replace(".", "-")}`;
   const row = el("div", "setting");
   row.dataset.key = key;
+  if (!info.basic) row.classList.add("advanced");
   if (value !== fallback) row.classList.add("changed");
 
   let control;
@@ -839,9 +845,54 @@ function renderSettings() {
     return set;
   });
   const where = el("p", "meta", `Saved in ${settingsData.path}`);
-  settingsForm.replaceChildren(...sets, where);
+  settingsForm.replaceChildren(...basicNotes(), ...sets, where);
   dirty.clear();
   updateSettingsButtons();
+}
+
+/** Basic tab only: a tip, and a heads-up when advanced settings aren't at their defaults. */
+function basicNotes() {
+  const notes = [el("p", "basic-only", "These cover most shoots. Advanced has every setting.")];
+  const changed = settingsData.order.filter((key) => {
+    const info = settingsData.info[key];
+    return !info.hidden && !info.basic && lookup(settingsData.values, key) !== lookup(settingsData.defaults, key);
+  }).length;
+  if (changed) {
+    const show = el("button", "link-button", "Show them");
+    show.type = "button";
+    show.addEventListener("click", () => showSettingsView("advanced", true));
+    const note = el("p", "basic-only", `${plural(changed, "advanced setting")} ${changed === 1 ? "is" : "are"} changed from default. `);
+    note.id = "advanced-changed";
+    note.append(show);
+    notes.push(note);
+  }
+  return notes;
+}
+
+const VIEW_KEY = "cully.settingsView";
+
+/** Shows the Basic or Advanced tab. Rows stay in the form, so unsaved edits survive the switch. */
+function showSettingsView(view, focus = false) {
+  settingsForm.dataset.view = view;
+  for (const tab of document.querySelectorAll(".settings-tabs [role=tab]")) {
+    const selected = tab.dataset.view === view;
+    tab.setAttribute("aria-selected", String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    if (selected && focus) tab.focus();
+  }
+  try {
+    localStorage.setItem(VIEW_KEY, view);
+  } catch {
+    //Storage blocked: the tab just isn't remembered
+  }
+}
+
+function savedSettingsView() {
+  try {
+    return localStorage.getItem(VIEW_KEY) === "advanced" ? "advanced" : "basic";
+  } catch {
+    return "basic";
+  }
 }
 
 function updateSettingsButtons() {
@@ -930,7 +981,7 @@ settingsForm.addEventListener("submit", async (event) => {
 });
 
 $("settings-reset").addEventListener("click", async () => {
-  if (!confirm("Put every setting back to its default?")) return;
+  if (!confirm("Put every setting back to its default? This includes the Advanced ones.")) return;
   try {
     settingsData = await api("POST", "/api/settings/reset", {});
   } catch (error) {
@@ -942,12 +993,67 @@ $("settings-reset").addEventListener("click", async () => {
   loadStaleness();
 });
 
+document.querySelector(".settings-tabs").addEventListener("click", (event) => {
+  const tab = event.target.closest("[role=tab]");
+  if (tab) showSettingsView(tab.dataset.view);
+});
+document.querySelector(".settings-tabs").addEventListener("keydown", (event) => {
+  //Two tabs, so either arrow switches to the other one
+  if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+  event.preventDefault();
+  showSettingsView(settingsForm.dataset.view === "basic" ? "advanced" : "basic", true);
+});
+showSettingsView(savedSettingsView());
+
 $("settings-rerank").addEventListener("click", () => $("stale-rerank").click());
 $("settings-redo").addEventListener("click", () => $("stale-redo").click());
 settingsButton.addEventListener("click", () => (settingsPanel.hidden ? openSettings() : closeSettings()));
 settingsPanel.querySelector(".close").addEventListener("click", () => closeSettings());
 settingsPanel.addEventListener("keydown", (event) => {
   if (event.key === "Escape") closeSettings();
+});
+
+
+
+// ---------- Export ----------
+
+const exportEl = $("export");
+let exportReady = false; // something is kept and nothing is running
+
+/** Fills the export popover with the current counts. */
+async function loadExport() {
+  $("export-start").disabled = true;
+  let info;
+  try {
+    info = await api("GET", "/api/export");
+  } catch (error) {
+    $("export-text").textContent = `Couldn't count the kept photos: ${error.message}`;
+    return;
+  }
+  $("export-text").textContent = info.kept
+    ? `Copy ${plural(info.kept, "kept photo")} to ${info.folder}, one folder per event. Photos already there are skipped.`
+    : "Nothing is marked keep yet. Press K on a photo to keep it.";
+  $("export-undecided").textContent = info.undecided
+    ? `${plural(info.undecided, "suggestion")} ${info.undecided === 1 ? "is" : "are"} still undecided and won't be copied.`
+    : "";
+  exportReady = info.kept > 0;
+  $("export-start").disabled = !exportReady || runButton.dataset.running === "1";
+}
+
+exportEl.addEventListener("toggle", (event) => {
+  if (event.newState === "open") loadExport();
+});
+
+$("export-start").addEventListener("click", async () => {
+  try {
+    const state = await api("POST", "/api/export", {});
+    exportEl.hidePopover();
+    renderRun(state);
+    followRun();
+    openRunPanel();
+  } catch (error) {
+    toast(`Couldn't start the export: ${error.message}`);
+  }
 });
 
 load();

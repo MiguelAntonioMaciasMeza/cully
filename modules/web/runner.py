@@ -27,7 +27,7 @@ class RunBusy(Exception):
 
 
 class Runner:
-    """Runs main.py --progress-json and keeps a RunState the API can read or wait on."""
+    """Runs main.py (or the export) with --progress-json and keeps a RunState the API can read or wait on."""
 
     def __init__(self, catalog_path: str | Path | None = None, modules_dir: Path = MODULES,
                  settings_path: str | Path | None = None):
@@ -45,19 +45,24 @@ class Runner:
         self.changed.notify_all()
 
     def start(self, folder: Path | None, steps: list[str], embeddings: bool = False,
-              import_to: Path | None = None, redo: str | None = None) -> None:
+              import_to: Path | None = None, redo: str | None = None, export_to: Path | None = None) -> None:
         """Starts a run in the background. folder can be None for catalog-only runs (redo, re-rank).
-        Raises RunBusy if one is already going."""
-        command = [sys.executable, "-u", "main.py"]
-        if folder is not None:
-            command.append(str(folder))
-        command += ["--progress-json", "--steps", ",".join(steps)]
-        if embeddings:
-            command.append("--embeddings")
-        if import_to is not None:
-            command += ["--import-to", str(import_to)]
-        if redo is not None:
-            command += ["--redo", redo]
+        With export_to, runs the export (python -m export) instead of main.py. Raises RunBusy if one is already going."""
+        if export_to is not None:
+            #Export loads no models, it's its own small script
+            command = [sys.executable, "-u", "-m", "export", str(export_to), "--progress-json"]
+            steps = ["export"]
+        else:
+            command = [sys.executable, "-u", "main.py"]
+            if folder is not None:
+                command.append(str(folder))
+            command += ["--progress-json", "--steps", ",".join(steps)]
+            if embeddings:
+                command.append("--embeddings")
+            if import_to is not None:
+                command += ["--import-to", str(import_to)]
+            if redo is not None:
+                command += ["--redo", redo]
         if self.catalog_path:
             command += ["--catalog", str(self.catalog_path)]
         if self.settings_path:

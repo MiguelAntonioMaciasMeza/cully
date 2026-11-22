@@ -232,6 +232,27 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
 #settings-rerank:not([hidden]) + #settings-redo { margin-left: 0; }
 .settings-note.good { color: var(--good); font-weight: 600; }
 .settings-note.bad { color: var(--bad); font-weight: 600; }
+/* Basic / Advanced tabs. Basic hides the advanced rows, and any group left empty */
+.settings-tabs { display: flex; gap: 4px; padding-top: 12px; border-bottom: 1px solid var(--border); }
+.settings-tabs button { padding: 6px 14px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0;
+                        background: none; color: var(--muted); cursor: pointer; margin-bottom: -1px; }
+.settings-tabs button[aria-selected="true"] { color: var(--text); font-weight: 600; background: var(--surface);
+                                              border-color: var(--border); }
+.settings-form[data-view="basic"] .setting.advanced,
+.settings-form[data-view="basic"] fieldset:not(:has(.setting:not(.advanced))),
+.settings-form:not([data-view="basic"]) .basic-only { display: none; }
+.settings-form .basic-only { margin: 0; color: var(--muted); }
+.run-panel .link-button { border: none; border-radius: 0; background: none; padding: 0; color: var(--rank); text-decoration: underline; cursor: pointer; }
+
+/* Export popover, under the top bar like the help */
+.export { width: 340px; }
+.export p { margin: 0 0 10px; }
+.export .muted { color: var(--muted); font-size: 13px; }
+.export .muted:empty { display: none; }
+.export button { border: 1px solid var(--good); border-radius: 6px; padding: 4px 14px; cursor: pointer;
+                 background: var(--good); color: var(--surface); font-weight: 600; }
+.export button:disabled { opacity: .5; cursor: default; }
+.export :focus-visible { outline: 3px solid var(--rank); outline-offset: 2px; }
 
 @media (max-width: 600px) {
   .top, main, .detail-bar, .detail-body, .stale { padding-left: 16px; padding-right: 16px; }

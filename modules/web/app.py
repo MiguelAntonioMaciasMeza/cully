@@ -444,6 +444,30 @@ def register_routes(app: Flask) -> None:
             abort(409, "A run is already going")
         return get_runner().snapshot(), 202
 
+    def export_counts() -> dict:
+        """Returns back how many photos are kept, how many suggestions are still undecided, and where export copies to"""
+        photos = report_photos()
+        kept = sum(p.culled_status == "keep" for p in photos)
+        undecided = sum(p.is_candidate and p.culled_status is None for p in photos)
+        return {"kept": kept, "undecided": undecided, "folder": get_settings().export_folder}
+
+    @app.get("/api/export")
+    def export_info():
+        return export_counts()
+
+    @app.post("/api/export")
+    def start_export():
+        """Copies the kept photos to the export_folder setting, one folder per event. Needs no torch"""
+        json_body()
+        counts = export_counts()
+        if not counts["kept"]:
+            abort(400, "No photos are marked keep yet")
+        try:
+            get_runner().start(None, ["export"], export_to=Path(counts["folder"]).expanduser())
+        except RunBusy:
+            abort(409, "A run is already going")
+        return get_runner().snapshot(), 202
+
     @app.get("/api/staleness")
     def staleness():
         """What's out of date because settings changed since it was made: photos per detection step,

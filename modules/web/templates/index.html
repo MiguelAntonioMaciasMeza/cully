@@ -19,6 +19,7 @@
     <button type="button" data-filter="unranked" aria-pressed="false">Unranked</button>
   </nav>
   <button type="button" id="run-button" class="run-button" aria-expanded="false" aria-controls="run-panel">Run</button>
+  <button type="button" id="export-button" class="run-button" popovertarget="export">Export</button>
   <button type="button" id="settings-button" class="run-button" aria-expanded="false" aria-controls="settings-panel">Settings</button>
   <button type="button" class="help-button" popovertarget="help" aria-label="Keyboard shortcuts">?</button>
   <div id="help" class="help" popover>
@@ -33,6 +34,12 @@
       <dt><kbd>A</kbd></dt><dd>Accept the burst</dd>
       <dt><kbd>?</kbd></dt><dd>Show / hide this help</dd>
     </dl>
+  </div>
+  <div id="export" class="help export" popover aria-labelledby="export-title">
+    <h2 id="export-title">Export kept photos</h2>
+    <p id="export-text">Loading…</p>
+    <p id="export-undecided" class="muted"></p>
+    <button type="button" id="export-start" class="primary" disabled>Export</button>
   </div>
 </header>
 
@@ -98,7 +105,11 @@
     <h2 id="settings-title">Settings</h2>
     <button type="button" class="close" aria-label="Close">✕</button>
   </div>
-  <form id="settings-form" class="settings-form" novalidate></form>
+  <div class="settings-tabs" role="tablist" aria-label="Which settings to show">
+    <button type="button" role="tab" id="tab-basic" data-view="basic" aria-controls="settings-form">Basic</button>
+    <button type="button" role="tab" id="tab-advanced" data-view="advanced" aria-controls="settings-form">Advanced</button>
+  </div>
+  <form id="settings-form" class="settings-form" data-view="basic" novalidate></form>
   <div class="settings-actions">
     <p id="settings-note" class="settings-note" role="status"></p>
     <button type="submit" form="settings-form" id="settings-save" class="primary" disabled>Save</button>
