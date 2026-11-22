@@ -1,7 +1,7 @@
 /*
 File: Cully/modules/web/static/app.js
 Description: The culling page. Renders /api/events, saves keep/reject through the API and shows the detail view.
-Also has the status labels, filters, keyboard shortcuts, the Run panel (start main.py, watch it live),
+Also has the status labels, filters, collapsible events/bursts, keyboard shortcuts, the Run panel (start main.py, watch it live),
 the out-of-date banner, the Settings panel (Basic / Advanced tabs) and Export.
 */
 "use strict";
@@ -158,6 +158,7 @@ function burstEl(burst) {
   const header = el("header");
   const status = candidates.length ? plural(candidates.length, "candidate") : "not ranked";
   header.append(
+    collapseButton(section, `b${burst.id}`, `burst ${burst.number}`),
     el("h3", "", `Burst ${burst.number}`),
     el("span", "meta", `${shortTime(burst.start).slice(11)} · ${plural(burst.photos.length, "photo")} · ${status}`),
   );
@@ -179,12 +180,12 @@ function burstEl(burst) {
   return section;
 }
 
-/** The outer box shared by events and the loose photos. */
-function eventBox(title, meta, children, hasCandidate) {
+/** The outer box shared by events and the loose photos. key remembers if it's collapsed. */
+function eventBox(title, meta, children, hasCandidate, key) {
   const section = el("section", "event");
   if (hasCandidate) section.classList.add("has-candidate");
   const head = el("header", "event-head");
-  head.append(el("h2", "", title), el("span", "meta", meta));
+  head.append(collapseButton(section, key, title), el("h2", "", title), el("span", "meta", meta));
   const bursts = el("div", "bursts");
   bursts.append(...children);
   section.append(head, bursts);
@@ -201,7 +202,7 @@ function eventEl(event) {
   else if (start.slice(0, 10) === end.slice(0, 10)) span = `${start} – ${end.slice(11)}`;
   const meta = `${span} · ${event.camera || "unknown camera"} · ${plural(event.bursts.length, "burst")} · `
     + `${plural(photos.length, "photo")} · ${plural(candidates, "candidate")}`;
-  return eventBox(`Event ${event.number}`, meta, event.bursts.map(burstEl), candidates > 0);
+  return eventBox(`Event ${event.number}`, meta, event.bursts.map(burstEl), candidates > 0, `e${event.id}`);
 }
 
 function looseEl(photos) {
@@ -210,8 +211,78 @@ function looseEl(photos) {
   lanes.append(laneEl("unranked", "Unranked", photos, null));
   box.append(lanes);
   const meta = `${plural(photos.length, "photo")} · can't be grouped into bursts`;
-  return eventBox("No capture time", meta, [box], false);
+  return eventBox("No capture time", meta, [box], false, "loose");
 }
+
+
+// ---------- Collapsing ----------
+
+const COLLAPSED_KEY = "cully.collapsed";
+const collapsed = loadCollapsed(); // keys of folded sections: "e<id>", "b<id>", "loose"
+const collapseAllButton = document.getElementById("collapse-all");
+
+function loadCollapsed() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(COLLAPSED_KEY)) ?? []);
+  } catch {
+    return new Set(); // no storage (private window), start expanded
+  }
+}
+
+function saveCollapsed() {
+  try {
+    localStorage.setItem(COLLAPSED_KEY, JSON.stringify([...collapsed]));
+  } catch {
+    // Not saved, it still works for this visit
+  }
+}
+
+/** A ▾ button that folds section away. Starts folded if key was folded last time. */
+function collapseButton(section, key, label) {
+  const button = el("button", "collapse");
+  button.type = "button";
+  button.dataset.collapse = key;
+  button.setAttribute("aria-label", `Collapse or expand ${label}`);
+  section.dataset.collapseKey = key;
+  setCollapsed(section, button, collapsed.has(key));
+  return button;
+}
+
+/** Folds or opens a section and updates its button. */
+function setCollapsed(section, button, fold) {
+  section.classList.toggle("collapsed", fold);
+  button.textContent = fold ? "▸" : "▾";
+  button.setAttribute("aria-expanded", String(!fold));
+  if (fold) collapsed.add(button.dataset.collapse);
+  else collapsed.delete(button.dataset.collapse);
+}
+
+function toggleSection(button) {
+  const section = button.closest("[data-collapse-key]");
+  setCollapsed(section, button, !section.classList.contains("collapsed"));
+  saveCollapsed();
+  updateCollapseAll();
+}
+
+/** "Collapse all" folds every event. Once all are folded it becomes "Expand all", which opens everything. */
+function updateCollapseAll() {
+  const events = [...eventsEl.querySelectorAll(".event")];
+  const allFolded = events.length > 0 && events.every((e) => e.classList.contains("collapsed"));
+  collapseAllButton.textContent = allFolded ? "Expand all" : "Collapse all";
+  collapseAllButton.disabled = events.length === 0;
+}
+
+collapseAllButton.addEventListener("click", () => {
+  const fold = collapseAllButton.textContent === "Collapse all";
+  for (const button of eventsEl.querySelectorAll("button[data-collapse]")) {
+    const section = button.closest("[data-collapse-key]");
+    //Collapse folds events only, so opening one shows its bursts as they were. Expand opens bursts too
+    if (fold && !section.classList.contains("event")) continue;
+    setCollapsed(section, button, fold);
+  }
+  saveCollapsed();
+  updateCollapseAll();
+});
 
 
 // ---------- Loading ----------
@@ -235,6 +306,7 @@ async function load() {
   } catch (error) {
     eventsEl.replaceChildren(el("p", "meta", `Couldn't load photos: ${error.message}`));
   }
+  updateCollapseAll();
   loadSummary();
   loadStaleness();
 }
@@ -374,6 +446,11 @@ detailEl.addEventListener("close", () => {
 
 // One listener for every card and Accept button (event delegation)
 eventsEl.addEventListener("click", (event) => {
+  const toggle = event.target.closest("[data-collapse]");
+  if (toggle) {
+    toggleSection(toggle);
+    return;
+  }
   const accept = event.target.closest("[data-accept]");
   if (accept) {
     acceptBurst(accept.dataset.accept);
