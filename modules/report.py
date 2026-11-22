@@ -19,7 +19,7 @@ from pathlib import Path
 from utils.make_thumbnail import make_thumbnail
 from config.config import Config
 from config.settings import Settings
-from models.catalog import Catalog
+from models.catalog import Catalog, resolve_catalog_path
 from models.report_photo import ReportPhoto
 from models.results import BurstResult, EventResult
 from utils.results import group_results
@@ -283,7 +283,7 @@ def open_in_browser(url: str):
 
 def main():
     parser = argparse.ArgumentParser(description="Write an HTML report of the pipeline results.")
-    parser.add_argument("--catalog", type=Path, help="catalog file to read (default: the real catalog)")
+    parser.add_argument("--catalog", help="catalog name or file path to read (default: the main catalog)")
     parser.add_argument("--out", type=Path, help="report folder (default: <output_path>/report from config.json)")
     parser.add_argument("--open", action="store_true", help="open the report in the browser when done")
     args = parser.parse_args()
@@ -293,7 +293,7 @@ def main():
     thumbs = out / "thumbs"
     thumbs.mkdir(parents=True, exist_ok=True)
 
-    catalog = Catalog(str(args.catalog)) if args.catalog else Catalog()
+    catalog = Catalog(resolve_catalog_path(args.catalog))
     photos = catalog.get_report_photos(settings.face_threshold)
     catalog_path = catalog.catalog_path
     catalog.close()

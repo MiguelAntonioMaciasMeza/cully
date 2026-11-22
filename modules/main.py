@@ -4,7 +4,7 @@ Description: Runs the whole Cully pipeline on a folder: scan, objects, faces, la
 (embeddings), sharpness and burst ranking. Each step only does photos it hasn't done yet,
 except sharpness and ranking, which redo the whole catalog.
 Run from Cully/modules with venv-main:
-    python main.py <folder> [--catalog PATH] [--embeddings] [--steps scan,objects,...] [--progress]
+    python main.py <folder> [--catalog NAME|PATH] [--embeddings] [--steps scan,objects,...] [--progress]
     [--progress-json] [--import-to DEST] [--settings PATH]
     python main.py --redo objects|faces [--all] [--catalog PATH] [--settings PATH]
 With --import-to, photos in <folder> and its sub-folders (a memory card) are copied to DEST first,
@@ -39,7 +39,7 @@ from config.config import Config
 from config.settings import Settings
 from ingest.directory_scanner import DirectoryScanner
 from ingest.importer import import_photos
-from models.catalog import Catalog
+from models.catalog import Catalog, resolve_catalog_path
 # torch (YOLO) has to load before TensorFlow (DeepFace) or the process crashes, so objects goes first
 from pipeline.objects import ObjectStep
 from pipeline.faces import FaceStep
@@ -53,7 +53,7 @@ from utils.steps import CATALOG_STEPS, PHOTO_STEPS, STEPS, default_steps, finger
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Run the Cully pipeline on a folder of photos.")
     parser.add_argument("folder", type=Path, nargs="?", help="folder of photos to scan (not needed for --redo)")
-    parser.add_argument("--catalog", type=Path, help="catalog file to use will default to main catalog, add field if you want a different catalog to be created")
+    parser.add_argument("--catalog", help="catalog name (shoot1 -> <catalog folder>/shoot1.db, made if new) or file path. Default: the main catalog")
     parser.add_argument("--embeddings", action="store_true", help="also embed faces (ranking doesn't need it)")
     parser.add_argument("--steps", help=f"comma separated subset of: {','.join(STEPS)}")
     parser.add_argument("-p", "--progress", action="store_true", help="show a live progress line for each step")
@@ -93,8 +93,10 @@ def main():
     # One Settings, Config and Catalog shared by every step
     settings = Settings(path=args.settings) if args.settings else Settings()
     config = Config()
-    catalog = Catalog(str(args.catalog)) if args.catalog else Catalog()
-    print(f"[main.py] Catalog: {catalog.catalog_path}")
+    catalog_path = resolve_catalog_path(args.catalog)
+    is_new = not Path(catalog_path).is_file()
+    catalog = Catalog(catalog_path)
+    print(f"[main.py] Catalog: {catalog.catalog_path}{' (new)' if is_new else ''}")
     #First run since tracking existed: what's already there counts as made with these settings
     if catalog.start_tracking({step: fingerprint(settings, step) for step in PHOTO_STEPS + CATALOG_STEPS}):
         print("[main.py] Started tracking which settings made each result")

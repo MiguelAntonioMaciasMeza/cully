@@ -15,7 +15,7 @@ from time import perf_counter
 
 from config.settings import Settings
 from export.exporter import export_keepers, kept_photos, write_sidecars_in_place
-from models.catalog import Catalog
+from models.catalog import Catalog, resolve_catalog_path
 from utils.progress import emit, use_json
 
 
@@ -23,7 +23,7 @@ def main():
     parser = argparse.ArgumentParser(description="Copy the kept photos into a folder per event, or write rating sidecars next to the originals")
     parser.add_argument("dest", type=Path, nargs="?", help="folder to export into (default: the export_folder setting)")
     parser.add_argument("--mode", choices=["copy", "sidecars"], help="copy (default: the export_mode setting) or sidecars next to the originals")
-    parser.add_argument("--catalog", type=Path, help="catalog file (default: the main catalog)")
+    parser.add_argument("--catalog", help="catalog name or file path (default: the main catalog)")
     parser.add_argument("--settings", type=Path, help="settings file (default: ~/.config/cully/settings.json)")
     parser.add_argument("-p", "--progress", action="store_true", help="show a live progress line")
     parser.add_argument("--progress-json", action="store_true", help="write progress as JSON lines on stdout")
@@ -38,7 +38,7 @@ def main():
         args.dest = Path(settings.export_folder)
     dest = args.dest.expanduser()
 
-    catalog = Catalog(str(args.catalog)) if args.catalog else Catalog()
+    catalog = Catalog(resolve_catalog_path(args.catalog))
     photos = catalog.get_report_photos()
     catalog.close()
 

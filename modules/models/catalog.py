@@ -1,7 +1,7 @@
 """
 File: Cully/modules/models/catalog.py
 Description: Defines catalog model that will keep track of photos attributes for persistent storage
-Looks at .local/share/cully if directory doesn't exists one will be created. This also creates a
+Catalogs live in config.json's catalog_path folder (default .local/share/cully/catalog), made if missing. This also creates a
 sqlite database that keeps tracks of images by their hash.
 Author: Miguel Macias
 Date: 2026-09-03
@@ -9,7 +9,7 @@ Date: 2026-09-03
 
 import sqlite3
 from dataclasses import dataclass, field
-from platformdirs import user_data_dir
+from config.config import Config
 from models.photo import Photo
 from models.boundingbox import BoundingBox
 from models.face_landmarks import FaceLandmarks
@@ -28,7 +28,23 @@ DEBUG = False
 
 
 def default_catalog_path() -> str:
-    return str(user_data_dir("cully") + "/catalog/catalog.db")
+    """Returns back the main catalog: catalog.db in config.json's catalog_path folder"""
+    return resolve_catalog_path(None)
+
+
+def resolve_catalog_path(name: str | Path | None) -> str:
+    """Returns back where a --catalog value points.
+    None is the main catalog, a bare name (shoot1) is <catalog folder>/shoot1.db, a path is used as given"""
+    folder = Path(Config().catalog_path).expanduser()
+    if name is None:
+        return str(folder / "catalog.db")
+    path = Path(name).expanduser()
+    #Anything with a folder in it (/tmp/x.db, ./x.db, ../x.db) is a real path
+    if any(sep in str(name) for sep in ("/", "\\")):
+        return str(path)
+    if path.suffix != ".db":
+        path = path.with_name(path.name + ".db")
+    return str(folder / path)
 
 
 @dataclass

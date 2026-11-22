@@ -2,7 +2,7 @@
 File: Cully/modules/web/__main__.py
 Description: Starts the Cully web server. Refuses any host that isn't this machine unless --allow-remote is given.
 Run from Cully/modules:
-    python -m web [--catalog PATH] [--settings PATH] [--host 127.0.0.1] [--port 5000] [--allow-remote] [--open]
+    python -m web [--catalog NAME|PATH] [--create] [--settings PATH] [--host 127.0.0.1] [--port 5000] [--allow-remote] [--open]
 Author: Miguel Macias
 Date: 2026-11-20
 """
@@ -13,6 +13,7 @@ import threading
 from pathlib import Path
 
 from report import open_in_browser
+from models.catalog import Catalog, resolve_catalog_path
 from web.app import create_app
 
 
@@ -35,9 +36,14 @@ def build_parser() -> argparse.ArgumentParser:
     DEFAULT_PORT = 5000
     parser.add_argument(
         "--catalog",
-        help="Location to your catalog, if none is set it will default to whatever catalog is configured in your configs",
+        help="Catalog name (shoot1 -> <catalog folder>/shoot1.db) or file path. Default: the main catalog",
         type=str,
         default=None,
+    )
+    parser.add_argument(
+        "--create",
+        help="Make the --catalog file if it doesn't exist yet, instead of stopping",
+        action="store_true",
     )
     parser.add_argument(
         "--settings",
@@ -85,9 +91,16 @@ def main():
             "[web/__main__.py]WARNING: Anyone on this network can see your images, proceed with caution."
         )
 
-    #Catalog() would make a new empty file for a mistyped path, so stop here instead
-    if args.catalog is not None and not Path(args.catalog).is_file():
-        parser.error(f"[web/__main__.py]No catalog file at {args.catalog}")
+    #A mistyped name would open as a new empty catalog, so only make one when --create asks for it
+    if args.create and args.catalog is None:
+        parser.error("[web/__main__.py]--create needs --catalog NAME|PATH")
+    if args.catalog is not None:
+        args.catalog = resolve_catalog_path(args.catalog)
+        if not Path(args.catalog).is_file():
+            if not args.create:
+                parser.error(f"[web/__main__.py]No catalog file at {args.catalog}. Add --create to make it")
+            Catalog(args.catalog).close()
+            print(f"[web/__main__.py]Created a new catalog at {args.catalog}")
 
     app = create_app(catalog_path=args.catalog, settings_path=args.settings)
     print(f"[web/__main__.py]Serving {args.catalog or 'the default catalog'} at http://{args.host}:{args.port}/")
