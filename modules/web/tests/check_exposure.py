@@ -77,6 +77,16 @@ def test_each_rule():
     assert issues["over"].endswith("stops over burst"), issues["over"]
 
 
+def test_overexposed_burst_caught_by_face():
+    #exposure_dataset shots 24-30: a whole burst 4 stops over, faces 220-226, frames 44% blown.
+    #The burst rule can't see it (they're all alike) and 44% is under white_frame, so the face limit must
+    burst = {h: metrics(h, brightness=220, clipped=44) for h in ("a", "b", "c")}
+    faces = {"a": [220], "b": [223], "c": [226]}
+    assert set(exposure_issues(burst, faces, LIMITS).values()) == {"face too bright"}
+    #The brightest real face in test1 (174) stays fine
+    assert exposure_issues({"a": metrics("a")}, {"a": [174]}, LIMITS) == {"a": None}
+
+
 def test_dark_scenes_and_check_off():
     #A whole dark burst (an aquarium) is fine, only frames that stand out are flagged
     dark = {h: metrics(h, brightness=15, crushed=35) for h in ("a", "b", "c")}

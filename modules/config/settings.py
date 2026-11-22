@@ -61,7 +61,7 @@ DEFAULT_SETTINGS = {
     # black_frame / white_frame: % of pixels crushed / blown out that makes a failed frame.
     # face_dark / face_bright: limits on a face's mean brightness.
     # burst_stops: how far a photo can be from its burst's median brightness, in stops
-    "exposure": {"check": True, "black_frame": 95.0, "white_frame": 95.0, "face_dark": 25, "face_bright": 230,
+    "exposure": {"check": True, "black_frame": 95.0, "white_frame": 95.0, "face_dark": 25, "face_bright": 200,
                  "burst_stops": 1.0},
     # Where photos copied off a memory card go, one folder per day inside it
     "import_folder": "~/Pictures/Cully",
