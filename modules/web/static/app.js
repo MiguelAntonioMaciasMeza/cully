@@ -14,6 +14,7 @@ const detailEl = document.getElementById("detail");
 const detailName = document.getElementById("detail-name");
 const detailPreview = document.getElementById("detail-preview");
 const detailMeta = document.getElementById("detail-meta");
+const detailFlags = document.getElementById("detail-flags");
 const detailFaces = document.getElementById("detail-faces");
 const helpEl = document.getElementById("help");
 const runButton = document.getElementById("run-button");
@@ -408,6 +409,9 @@ async function openDetail(hash) {
   detailName.textContent = card ? card.dataset.name : "";
   detailPreview.src = `/preview/${hash}`;
   detailPreview.alt = card ? card.dataset.name : "";
+  //Outline right away from the card, so it doesn't pop in after the details load
+  detailPreview.classList.toggle("candidate", card?.dataset.candidate === "1");
+  detailFlags.replaceChildren();
   detailMeta.textContent = "Loading…";
   detailFaces.replaceChildren();
   updateDetailButtons();
@@ -421,6 +425,8 @@ async function openDetail(hash) {
     return;
   }
   if (detailHash !== hash) return; // another photo was opened meanwhile
+  detailPreview.classList.toggle("candidate", photo.is_candidate);
+  detailFlags.replaceChildren(...detailFlagEls(photo));
 
   const size = photo.width && photo.height ? `${photo.width} × ${photo.height}` : "unknown size";
   const meta = [photo.camera || "unknown camera", shortTime(photo.capture_time), size];
@@ -451,6 +457,36 @@ async function openDetail(hash) {
     figure.append(img, el("figcaption", "", `${sharp} · ${ear} · ${face.confidence.toFixed(0)}%`));
     detailFaces.append(figure);
   }
+}
+
+/** Plain words for an exposure_issue, e.g. "1.2 stops over burst" */
+function exposureLabel(issue) {
+  const labels = {
+    "black frame": "Underexposed: almost all black",
+    "white frame": "Overexposed: almost all white",
+    "face too dark": "Face underexposed",
+    "face too bright": "Face overexposed",
+  };
+  if (labels[issue]) return labels[issue];
+  const stops = issue.match(/^([\d.]+) stops (over|under) burst$/);
+  if (stops) return `${stops[2] === "over" ? "Overexposed" : "Underexposed"}: ${stops[1]} stops ${stops[2]} its burst`;
+  return capitalize(issue);
+}
+
+/** The badges above the detail photo: candidate, and anything Cully noticed. */
+function detailFlagEls(photo) {
+  const flags = [];
+  if (photo.is_candidate) flags.push(el("span", "badge good", "✓ Candidate"));
+  if (photo.rank !== null) flags.push(el("span", "badge rank", `#${photo.rank} in burst`));
+  if (photo.eyes_open === false) flags.push(el("span", "badge bad", "Eyes closed"));
+  if (photo.exposure_issue) flags.push(el("span", "badge bad", exposureLabel(photo.exposure_issue)));
+  //Sharpness is relative to the burst, so this says softer than its best frame, not out of focus
+  if (photo.rank > 1 && photo.score < photo.candidate_margin) {
+    flags.push(el("span", "badge bad", `Softer than the burst's best (${Math.round(photo.score * 100)}%)`));
+  }
+  if (photo.rank !== null && photo.face_count === 0) flags.push(el("span", "badge muted", "No face: judged on the whole frame"));
+  if (photo.unranked_reason) flags.push(el("span", "badge muted", `Unranked: ${photo.unranked_reason}`));
+  return flags;
 }
 
 /** Shows the photo step cards away (1 next, -1 previous) without leaving the view. Stops at the ends. */

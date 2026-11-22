@@ -268,6 +268,7 @@ def register_routes(app: Flask) -> None:
         metrics = get_catalog().get_photo_metrics([image_hash]).get(image_hash)
         return {
             **photo_json(photo),
+            "candidate_margin": settings.ranking["candidate_margin"],
             "exposure": None if metrics is None else {
                 "brightness": metrics.brightness, "clipped": metrics.clipped, "crushed": metrics.crushed,
             },
