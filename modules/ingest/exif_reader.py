@@ -6,9 +6,8 @@ from datetime import datetime
 import logging
 from enum import Enum
 from typing import cast
-import rawpy
 import cv2
-from utils.read_image import RAW_SUFFIXES
+from utils.read_image import RAW_SUFFIXES, read_image
 DEBUG = False
 # logging.getLogger("exif").setLevel(logging.ERROR)
 
@@ -77,11 +76,12 @@ class ExifReader:
             self.image_exif["datetime_original"] = tags.get("EXIF DateTimeOriginal")
             self.image_exif["subsecond_original"] = str(tags.get("EXIF SubSecTimeOriginal"))
             self.image_exif["camera_model"] = self._clean_model(tags.get("Image Model"))
-            raw_img = rawpy.imread(str(path))
-            if raw_img is not None:
-                img_sizes = raw_img.sizes
-                self.image_exif["x_resolution"] = img_sizes.crop_width
-                self.image_exif["y_resolution"] = img_sizes.crop_height
+            # Size of what the pipeline reads (the upright preview), so it matches the boxes.
+            # rawpy's crop size is 0 for some NEFs and never rotated
+            img = read_image(path)
+            if img is not None:
+                self.image_exif["x_resolution"] = img.shape[1]
+                self.image_exif["y_resolution"] = img.shape[0]
             
     @staticmethod
     def _clean_model(raw: Any) -> str | None:

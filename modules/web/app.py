@@ -150,8 +150,10 @@ def create_app(
         found = get_catalog().get_face_box_with_path(face_box_id)
         if found is None:
             abort(404, description="No such face")
-        source, box = found
-        target = app.config["CACHE_DIR"] / "faces" / f"{face_box_id}.jpg"
+        source, image_hash, box = found
+        #Keyed by photo and box, not box id: ids restart in every catalog and after a redo
+        x1, y1, x2, y2 = box
+        target = app.config["CACHE_DIR"] / "faces" / f"{image_hash}_{x1}_{y1}_{x2}_{y2}.jpg"
         return _image_response(cached_face(Path(source), box, target), source)
 
     register_routes(app)

@@ -417,7 +417,8 @@ async function openDetail(hash) {
   for (const face of photo.faces) {
     const figure = el("figure", "face");
     const img = el("img");
-    img.src = `/face/${face.id}`;
+    //Photo and box in the URL: browsers cache by URL, and box ids repeat across catalogs and redos
+    img.src = `/face/${face.id}?v=${hash}_${face.box.join("_")}`;
     img.alt = "Face crop";
     img.loading = "lazy";
     const ear = face.ear_left === null ? "EAR –" : `EAR ${face.ear_left.toFixed(2)} / ${face.ear_right.toFixed(2)}`;

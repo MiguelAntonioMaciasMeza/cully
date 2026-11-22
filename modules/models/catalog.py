@@ -824,13 +824,13 @@ class Catalog:
 
     def get_face_box_with_path(
         self, face_box_id: int
-    ) -> tuple[str, tuple[int, int, int, int]] | None:
-        """Photo path and (x1, y1, x2, y2) of one real face box, None if there is no such face."""
+    ) -> tuple[str, str, tuple[int, int, int, int]] | None:
+        """Photo path, image hash and (x1, y1, x2, y2) of one real face box, None if there is no such face."""
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
         row = self.cursor.execute(
             """
-            SELECT p.image_path, f.x1, f.y1, f.x2, f.y2
+            SELECT p.image_path, p.image_hash, f.x1, f.y1, f.x2, f.y2
             FROM face_boxes f
             JOIN bounding_boxes b ON b.id = f.parent_box_id
             JOIN photos p ON p.image_hash = b.image_hash
@@ -840,7 +840,7 @@ class Catalog:
         ).fetchone()
         if row is None:
             return None
-        return row["image_path"], (row["x1"], row["y1"], row["x2"], row["y2"])
+        return row["image_path"], row["image_hash"], (row["x1"], row["y1"], row["x2"], row["y2"])
 
     def set_culled_status(self, image_hash: str, status: str | None) -> bool:
         """Sets culled status of an image"""

@@ -1,7 +1,7 @@
 """
 File: Cully/modules/web/images.py
 Description: Makes and caches the images the web app serves: thumbnails, previews and face crops.
-Each is made once, on first request, and kept by image hash (or face box id). OpenCV only, CR2 goes through utils/read_image.py.
+Each is made once, on first request, and kept by image hash (faces by image hash and box). OpenCV only, RAW goes through utils/read_image.py.
 Author: Miguel Macias
 Date: 2026-11-17
 """
