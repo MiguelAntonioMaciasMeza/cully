@@ -26,12 +26,12 @@
   <div id="help" class="help" popover>
     <h2>Keyboard shortcuts</h2>
     <dl>
-      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next photo</dd>
+      <dt><kbd>←</kbd> <kbd>→</kbd></dt><dd>Previous / next photo, also in the photo view</dd>
       <dt><kbd>Enter</kbd></dt><dd>Open the photo</dd>
       <dt><kbd>Esc</kbd></dt><dd>Close the photo or this help</dd>
-      <dt><kbd>K</kbd></dt><dd>Keep, then next</dd>
-      <dt><kbd>X</kbd></dt><dd>Reject, then next</dd>
-      <dt><kbd>U</kbd></dt><dd>Clear, then next</dd>
+      <dt><kbd>K</kbd></dt><dd>Keep, then next, also in the photo view</dd>
+      <dt><kbd>X</kbd></dt><dd>Reject, then next, also in the photo view</dd>
+      <dt><kbd>U</kbd></dt><dd>Clear, then next, also in the photo view</dd>
       <dt><kbd>A</kbd></dt><dd>Accept the burst</dd>
       <dt><kbd>?</kbd></dt><dd>Show / hide this help</dd>
     </dl>
@@ -93,6 +93,8 @@
   <div class="detail-bar">
     <h2 id="detail-name"></h2>
     <div class="detail-actions">
+      <button type="button" data-step="-1" aria-label="Previous photo">‹</button>
+      <button type="button" data-step="1" aria-label="Next photo">›</button>
       <button type="button" data-set="keep">Keep</button>
       <button type="button" data-set="reject">Reject</button>
       <button type="button" data-set="">Clear</button>

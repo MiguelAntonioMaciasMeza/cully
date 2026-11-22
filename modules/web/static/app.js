@@ -380,6 +380,17 @@ function updateDetailButtons() {
   for (const button of detailEl.querySelectorAll("[data-set]")) {
     if (button.dataset.set) button.setAttribute("aria-pressed", String(button.dataset.set === status));
   }
+  //Grey out ‹ › at the first and last photo
+  detailEl.querySelector('[data-step="-1"]').disabled = !neighbourCard(card, -1);
+  detailEl.querySelector('[data-step="1"]').disabled = !neighbourCard(card, 1);
+}
+
+/** The shown card after (1) or before (-1) card in page order. Works even if card itself is now hidden by a filter. */
+function neighbourCard(card, step) {
+  const visible = visibleCards();
+  if (!card) return visible[0];
+  if (step > 0) return visible.find((c) => card.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_FOLLOWING);
+  return visible.findLast((c) => card.compareDocumentPosition(c) & Node.DOCUMENT_POSITION_PRECEDING);
 }
 
 /** Opens the full-screen view of one photo: big preview, then each face with its numbers. */
@@ -428,10 +439,31 @@ async function openDetail(hash) {
   }
 }
 
+/** Shows the photo step cards away (1 next, -1 previous) without leaving the view. Stops at the ends. */
+function stepDetail(step) {
+  const next = neighbourCard(cards.get(detailHash), step);
+  if (!next) return;
+  //The page behind is inert while the view is open, so scroll the card into view; closing focuses it
+  next.scrollIntoView({ block: "nearest", inline: "nearest" });
+  openDetail(next.dataset.hash);
+}
+
+/** Marks the shown photo, then shows the next one (stays put on the last photo). */
+function markDetailAndAdvance(status) {
+  //Find the next card first, a filter may hide this one once it's marked
+  const next = neighbourCard(cards.get(detailHash), 1);
+  setStatus(detailHash, status);
+  if (next) {
+    next.scrollIntoView({ block: "nearest", inline: "nearest" });
+    openDetail(next.dataset.hash);
+  }
+}
+
 detailEl.addEventListener("click", (event) => {
   const button = event.target.closest("button");
   if (!button) return;
   if (button.classList.contains("close")) closeDetail();
+  else if ("step" in button.dataset) stepDetail(Number(button.dataset.step));
   else if ("set" in button.dataset) setStatus(detailHash, button.dataset.set || null);
 });
 
@@ -515,10 +547,22 @@ function setFilter(name) {
 
 /** Keyboard culling. Arrows move, K/X/U keep/reject/clear, A accepts the burst, ? toggles the help. */
 function onKey(event) {
-  //Leave browser shortcuts, typing and the detail view alone
+  //Leave browser shortcuts and typing alone
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.target.closest("input, textarea, select")) return;
-  if (isDetailOpen()) return;
+  if (isDetailOpen()) {
+    //In the photo view the arrows go through the photos, K/X/U mark the shown one then go on
+    switch (event.key.toLowerCase()) {
+      case "arrowright": stepDetail(1); break;
+      case "arrowleft": stepDetail(-1); break;
+      case "k": markDetailAndAdvance("keep"); break;
+      case "x": markDetailAndAdvance("reject"); break;
+      case "u": markDetailAndAdvance(null); break;
+      default: return;
+    }
+    event.preventDefault();
+    return;
+  }
   if (event.target.closest("#run-panel, #settings-panel")) return; //The panels have their own buttons
 
   const card = document.activeElement?.closest(".card") ?? null;
