@@ -20,6 +20,8 @@ import sys
 import tempfile
 import time
 
+import cv2
+
 from web.app import create_app
 from web.tests.check_catalog import make_burst_catalog
 
@@ -370,7 +372,7 @@ def test_export_kept_photos():
         out = Path(folder) / "exports"
         put_settings(client, {"export_folder": str(out)})
         #Nothing kept yet
-        assert client.get("/api/export").get_json() == {"kept": 0, "undecided": 1, "folder": str(out)}
+        assert client.get("/api/export").get_json() == {"kept": 0, "undecided": 1, "folder": str(out), "rating": 3}
         assert client.post("/api/export", json={}).status_code == 400
 
         #Keep the 2 photos that aren't suggestions, the suggestion stays undecided
@@ -391,13 +393,20 @@ def test_export_kept_photos():
         assert final["exit_code"] == 0, final["log"][-10:]
         assert final["steps"] == ["export"] and "2 of 2" in final["finished"][0]["result"], final["finished"]
         event = out / "2026-01-01 10-00"
-        assert sorted(p.name for p in event.iterdir()) == ["burst_1.jpg", "burst_2.jpg"], list(out.rglob("*"))
+        assert sorted(p.name for p in event.iterdir()) == [".cully-export.json", "burst_1.jpg", "burst_2.jpg"], list(out.rglob("*"))
+        #The copies carry the rating inside, the originals don't
+        assert b'xmp:Rating="3"' in (event / "burst_1.jpg").read_bytes()
+        assert b"xmp:Rating" not in (Path(folder) / "burst_1.jpg").read_bytes()
+        assert cv2.imread(str(event / "burst_1.jpg")) is not None, "rated JPEG still opens"
 
-        #Exporting again copies nothing new
+        #Exporting again copies nothing new, it only updates the rating
+        put_settings(client, {"export_rating": 5})
         client.post("/api/export", json={})
         again = wait_for_run(client)
-        assert "0 of 2" in again["finished"][0]["result"], again["finished"]
-        assert len(list(event.iterdir())) == 2
+        assert "0 of 2" in again["finished"][0]["result"] and "2 rated 5" in again["finished"][0]["result"], again["finished"]
+        assert len(list(event.iterdir())) == 3
+        rated = (event / "burst_1.jpg").read_bytes()
+        assert b'xmp:Rating="5"' in rated and b'xmp:Rating="3"' not in rated
 
 
 # ---------- Real catalog (only with --catalog) ----------

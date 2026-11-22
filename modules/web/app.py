@@ -449,7 +449,8 @@ def register_routes(app: Flask) -> None:
         photos = report_photos()
         kept = sum(p.culled_status == "keep" for p in photos)
         undecided = sum(p.is_candidate and p.culled_status is None for p in photos)
-        return {"kept": kept, "undecided": undecided, "folder": get_settings().export_folder}
+        settings = get_settings()
+        return {"kept": kept, "undecided": undecided, "folder": settings.export_folder, "rating": settings.export_rating}
 
     @app.get("/api/export")
     def export_info():

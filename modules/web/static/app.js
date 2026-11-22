@@ -1031,7 +1031,7 @@ async function loadExport() {
     return;
   }
   $("export-text").textContent = info.kept
-    ? `Copy ${plural(info.kept, "kept photo")} to ${info.folder}, one folder per event. Photos already there are skipped.`
+    ? `Copy ${plural(info.kept, "kept photo")} to ${info.folder}, one folder per event, rated ${info.rating}★ for darktable and Lightroom. Photos already there only get their rating updated.`
     : "Nothing is marked keep yet. Press K on a photo to keep it.";
   $("export-undecided").textContent = info.undecided
     ? `${plural(info.undecided, "suggestion")} ${info.undecided === 1 ? "is" : "are"} still undecided and won't be copied.`

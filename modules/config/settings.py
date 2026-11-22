@@ -59,6 +59,8 @@ DEFAULT_SETTINGS = {
     "import_folder": "~/Pictures/Cully",
     # Where Export copies the kept photos, one folder per event inside it
     "export_folder": "~/Pictures/Cully/Exports",
+    # Stars the exported copies get, so darktable and Lightroom show them as kept
+    "export_rating": 3,
 }
 
 # How the settings page shows each setting, by "key" or "group.key". Every setting needs an entry,
@@ -129,6 +131,9 @@ SETTINGS_INFO = {
     "export_folder": {"group": "Folders", "label": "Export folder", "type": "text", "applies": "next_export",
                       "basic": True,
                       "help": "Export copies your kept photos here, one folder per event."},
+    "export_rating": {"group": "Folders", "label": "Kept photo rating", "type": "integer",
+                      "min": 1, "max": 5, "step": 1, "unit": "★", "applies": "next_export",
+                      "help": "Stars the exported copies get, read by darktable and Lightroom. Originals are never changed."},
     # Not wired up yet, kept off the page
     "saliency_scale": {"hidden": True},
     "saliency_model": {"hidden": True},
@@ -168,6 +173,7 @@ class Settings:
     detection: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["detection"]))
     import_folder: str = field(default=DEFAULT_SETTINGS["import_folder"])
     export_folder: str = field(default=DEFAULT_SETTINGS["export_folder"])
+    export_rating: int = field(default=DEFAULT_SETTINGS["export_rating"])
 
     def __post_init__(self):
         # Check if directory exists, if not create
@@ -237,6 +243,8 @@ class Settings:
             raise ValueError(f"[settings.py]object scale must above 0 and no more than 1")
         if self.crop_size["sharpness"] < 1:
             raise ValueError("[settings.py]crop_size.sharpness must be 1 or more")
+        if not 1 <= self.export_rating <= 5:
+            raise ValueError(f"[settings.py]export_rating must be between 1 and 5, got {self.export_rating}")
         for setting in ("import_folder", "export_folder"):
             if not self.value(setting).strip():
                 raise ValueError(f"[settings.py]{setting} can't be empty")

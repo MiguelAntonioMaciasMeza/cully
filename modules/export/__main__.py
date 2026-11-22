@@ -1,6 +1,6 @@
 """
 File: Cully/modules/export/__main__.py
-Description: Exports the kept photos from the command line. Needs no models, so it runs in either venv.
+Description: Exports the kept photos, with their star rating, from the command line. Needs no models, so it runs in either venv.
 Run from Cully/modules:
     python -m export [DEST] [--catalog PATH] [--settings PATH] [--progress] [--progress-json]
 DEST defaults to the export_folder setting.
@@ -32,8 +32,8 @@ def main():
     if args.progress_json:
         use_json(sys.stdout)
         sys.stdout = sys.stderr
+    settings = Settings(path=args.settings) if args.settings else Settings()
     if args.dest is None:
-        settings = Settings(path=args.settings) if args.settings else Settings()
         args.dest = Path(settings.export_folder)
     dest = args.dest.expanduser()
 
@@ -43,8 +43,8 @@ def main():
 
     start = perf_counter()
     emit("step_start", step="export")
-    copied = export_keepers(photos, dest, args.progress or args.progress_json)
-    result = f"{copied} of {len(kept_photos(photos))} kept photos copied to {dest}"
+    copied, rated = export_keepers(photos, dest, settings.export_rating, args.progress or args.progress_json)
+    result = f"{copied} of {len(kept_photos(photos))} kept photos copied to {dest}, {rated} rated {settings.export_rating}★"
     seconds = perf_counter() - start
     print(f"[__main__.py] export: {result} ({seconds:.1f}s)")
     emit("step_end", step="export", result=result, seconds=round(seconds, 1))
