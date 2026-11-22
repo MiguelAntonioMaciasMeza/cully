@@ -170,6 +170,8 @@ def photo_json(photo: ReportPhoto) -> dict:
         "eyes_open": photo.eyes_open,
         "is_candidate": photo.is_candidate,
         "unranked_reason": photo.unranked_reason,
+        "exposure_issue": photo.exposure_issue,
+        "face_count": photo.faces,
         "culled_status": photo.culled_status,
         "width": photo.width,
         "height": photo.height,
@@ -263,8 +265,12 @@ def register_routes(app: Flask) -> None:
         faces = get_catalog().get_faces_for_photo(
             image_hash, settings.models["sharpness"], settings.face_threshold
         )
+        metrics = get_catalog().get_photo_metrics([image_hash]).get(image_hash)
         return {
             **photo_json(photo),
+            "exposure": None if metrics is None else {
+                "brightness": metrics.brightness, "clipped": metrics.clipped, "crushed": metrics.crushed,
+            },
             "path": photo.image_path,
             "camera": photo.camera_model,
             "capture_time": photo.capture_time,
@@ -291,6 +297,7 @@ def register_routes(app: Flask) -> None:
         unreviewed = 0
         candidates = 0
         eyes_closed = 0
+        exposure_issues = 0
         unranked = 0
         for photo in photos:
             if photo.culled_status == "keep":
@@ -305,6 +312,8 @@ def register_routes(app: Flask) -> None:
 
             if photo.eyes_open is False:
                 eyes_closed += 1
+            if photo.exposure_issue:
+                exposure_issues += 1
             if photo.rank is None:
                 unranked += 1
 
@@ -316,6 +325,7 @@ def register_routes(app: Flask) -> None:
             "bursts": bursts,
             "candidates": candidates,
             "eyes_closed": eyes_closed,
+            "exposure_issues": exposure_issues,
             "unranked": unranked,
             "kept": kept,
             "rejected": rejected,
@@ -452,11 +462,12 @@ def register_routes(app: Flask) -> None:
 
     @app.post("/api/rerank")
     def rerank():
-        """Redoes sharpness and ranking for the whole catalog with the current settings (seconds)"""
+        """Redoes sharpness and ranking for the whole catalog with the current settings (seconds).
+        exposure only measures what's missing, so older catalogs get their numbers here too"""
         if not pipeline_ready():
             abort(400, "This server can't run the pipeline. Start it with venv-main.")
         try:
-            get_runner().start(None, ["sharpness", "ranking"])
+            get_runner().start(None, ["sharpness", "exposure", "ranking"])
         except RunBusy:
             abort(409, "A run is already going")
         return get_runner().snapshot(), 202

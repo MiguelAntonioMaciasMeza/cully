@@ -57,6 +57,12 @@ DEFAULT_SETTINGS = {
     # object_scale: images are shrunk by this before YOLO (used by ObjectStep)
     # person_threshold: YOLO confidence for person boxes, other objects use object_threshold
     "detection": {"object_scale": 0.5, "person_threshold": 50},
+    # Exposure problems penalise a photo like closed eyes (scoring/exposure.py). Brightness is 0-255.
+    # black_frame / white_frame: % of pixels crushed / blown out that makes a failed frame.
+    # face_dark / face_bright: limits on a face's mean brightness.
+    # burst_stops: how far a photo can be from its burst's median brightness, in stops
+    "exposure": {"check": True, "black_frame": 95.0, "white_frame": 95.0, "face_dark": 25, "face_bright": 230,
+                 "burst_stops": 1.0},
     # Where photos copied off a memory card go, one folder per day inside it
     "import_folder": "~/Pictures/Cully",
     # Where Export copies the kept photos, one folder per event inside it
@@ -115,6 +121,29 @@ SETTINGS_INFO = {
     "ranking.max_candidates": {"group": "Ranking", "label": "Most candidates per burst", "type": "integer",
                                "min": 0, "max": 100, "step": 1, "applies": "next_run", "basic": True,
                                "help": "The most photos suggested from one burst. 0 means no limit."},
+    "exposure.check": {"group": "Exposure", "label": "Check exposure", "type": "boolean", "applies": "next_run",
+                       "basic": True,
+                       "help": "Rank badly exposed photos lower and never suggest them: black or white frames, faces too dark "
+                               "or too bright, and frames much brighter or darker than the rest of their burst."},
+    "exposure.burst_stops": {"group": "Exposure", "label": "Burst tolerance", "type": "number",
+                             "min": 0.1, "max": 5, "step": 0.1, "unit": "stops", "applies": "next_run", "basic": True,
+                             "help": "How much brighter or darker than the rest of its burst a photo can be. Catches flash "
+                                     "misfires and bracketed shots."},
+    "exposure.black_frame": {"group": "Exposure", "label": "Black frame", "type": "number",
+                             "min": 0, "max": 100, "step": 1, "unit": "%", "applies": "next_run",
+                             "help": "A photo with at least this much pure black is a failed frame. Dark scenes like an "
+                                     "aquarium stay well under it."},
+    "exposure.white_frame": {"group": "Exposure", "label": "White frame", "type": "number",
+                             "min": 0, "max": 100, "step": 1, "unit": "%", "applies": "next_run",
+                             "help": "A photo with at least this much pure white is a failed frame. Shots on a white "
+                                     "background stay under it."},
+    "exposure.face_dark": {"group": "Exposure", "label": "Face too dark", "type": "integer",
+                           "min": 0, "max": 255, "step": 1, "applies": "next_run",
+                           "help": "A face darker than this (0 black to 255 white) is a silhouette. Moody backlit faces "
+                                   "are around 30 to 50."},
+    "exposure.face_bright": {"group": "Exposure", "label": "Face too bright", "type": "integer",
+                             "min": 0, "max": 255, "step": 1, "applies": "next_run",
+                             "help": "A face brighter than this (0 black to 255 white) is blown out."},
     "models.sharpness": {"group": "Models", "label": "Sharpness method", "type": "choice",
                          "choices": ["laplacian"], "applies": "next_run",
                          "help": "How each face crop's sharpness is measured."},
@@ -177,6 +206,7 @@ class Settings:
     face_threshold: float = field(default=DEFAULT_SETTINGS["face_threshold"])
     grouping: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["grouping"]))
     ranking: dict[str, float | bool] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["ranking"]))
+    exposure: dict[str, float | bool] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["exposure"]))
     models: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["models"]))
     hardware: dict[str, str] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["hardware"]))
     detection: dict[str, float] = field(default_factory=lambda: dict(DEFAULT_SETTINGS["detection"]))
@@ -247,6 +277,17 @@ class Settings:
         for setting, value in self.grouping.items():
             if value <= 0:
                 raise ValueError(f"[settings.py]{setting} must be above 0, got {value}")
+        exposure = self.exposure
+        for setting in ("black_frame", "white_frame"):
+            if not 0 <= exposure[setting] <= 100:
+                raise ValueError(f"[settings.py]exposure.{setting} must be between 0 and 100, got {exposure[setting]}")
+        for setting in ("face_dark", "face_bright"):
+            if not 0 <= exposure[setting] <= 255:
+                raise ValueError(f"[settings.py]exposure.{setting} must be between 0 and 255, got {exposure[setting]}")
+        if exposure["face_dark"] >= exposure["face_bright"]:
+            raise ValueError("[settings.py]exposure.face_dark must be below exposure.face_bright")
+        if exposure["burst_stops"] <= 0:
+            raise ValueError("[settings.py]exposure.burst_stops must be above 0")
         if self.ranking["max_candidates"] < 0:
             raise ValueError(f"[settings.py]max_candidates must be 0 or more")
         if not 0 < self.detection["object_scale"] <= 1:

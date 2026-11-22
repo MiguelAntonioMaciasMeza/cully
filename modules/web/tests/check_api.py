@@ -108,7 +108,7 @@ def test_events():
         assert [p["hash"] for p in burst["photos"]] == hashes
         #Every field the page reads
         keys = {"hash", "name", "rank", "score", "eyes_open", "is_candidate",
-                "unranked_reason", "culled_status", "width", "height"}
+                "unranked_reason", "exposure_issue", "face_count", "culled_status", "width", "height"}
         assert set(burst["photos"][0]) == keys, set(burst["photos"][0])
 
 

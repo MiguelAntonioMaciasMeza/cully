@@ -9,16 +9,16 @@ Date: 2026-11-21
 import hashlib
 import json
 
-STEPS = ["import", "scan", "redo", "objects", "faces", "landmarks", "embeddings", "sharpness", "ranking"]
+STEPS = ["import", "scan", "redo", "objects", "faces", "landmarks", "embeddings", "sharpness", "exposure", "ranking"]
 
 # The settings each step's stored results depend on. A change to one of these makes that step's
-# results out of date. landmarks reads no settings, embeddings are already stored per model name and
+# results out of date. landmarks and exposure read no settings (exposure limits are used by ranking), embeddings are already stored per model name and
 # hardware.device doesn't change results.
 STEP_SETTINGS = {
     "objects": ["YOLOModel", "object_threshold", "detection.person_threshold", "detection.object_scale"],
     "faces": ["face_threshold"],
     "sharpness": ["models.sharpness", "crop_size.sharpness"],
-    "ranking": ["grouping", "ranking", "face_threshold", "models.sharpness"],
+    "ranking": ["grouping", "ranking", "exposure", "face_threshold", "models.sharpness"],
 }
 # objects and faces only run on new photos, so they're tracked per photo and redone with --redo.
 # sharpness and ranking redo the whole catalog every run, so one record each is enough.

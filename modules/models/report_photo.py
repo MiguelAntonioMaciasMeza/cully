@@ -30,6 +30,8 @@ class ReportPhoto:
     culled_status: str | None
     width: int | None
     height: int | None
+    exposure_issue: str | None = None  # e.g. "black frame", None when fine or not ranked
+
     @property
     def unranked_reason(self) -> str | None:
         """Short reason the photo has no rank, None if it is ranked."""
@@ -63,5 +65,6 @@ class ReportPhoto:
             row["faces"],
             row["culled_status"],
             row["width"],
-            row["height"]
+            row["height"],
+            row["exposure_issue"],
         )

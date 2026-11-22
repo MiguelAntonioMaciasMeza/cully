@@ -1,7 +1,7 @@
 """
 File: Cully/modules/main.py
 Description: Runs the whole Cully pipeline on a folder: scan, objects, faces, landmarks,
-(embeddings), sharpness and burst ranking. Each step only does photos it hasn't done yet,
+(embeddings), sharpness, exposure and burst ranking. Each step only does photos it hasn't done yet,
 except sharpness and ranking, which redo the whole catalog.
 Run from Cully/modules with venv-main:
     python main.py <folder> [--catalog NAME|PATH] [--embeddings] [--steps scan,objects,...] [--progress]
@@ -45,6 +45,7 @@ from pipeline.objects import ObjectStep
 from pipeline.faces import FaceStep
 from pipeline.landmarks import LandmarkStep
 from pipeline.sharpness import SharpnessStep
+from pipeline.exposure import ExposureStep
 from pipeline.burst_ranking import BurstRankStep
 from utils.progress import emit, use_json
 from utils.steps import CATALOG_STEPS, PHOTO_STEPS, STEPS, default_steps, fingerprint
@@ -140,6 +141,8 @@ def main():
             case "sharpness":
                 SharpnessStep(catalog, settings, show).run()
                 result = "all face boxes scored"
+            case "exposure":
+                result = f"{ExposureStep(catalog, show).run()} new photos"
             case "ranking":
                 rankings = BurstRankStep(catalog, settings).run()
                 result = f"{len(rankings)} bursts ranked"

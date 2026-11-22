@@ -36,7 +36,13 @@ class FaceScore:
 @dataclass
 class RankedPhoto:
     image_hash: str
-    score: float  # weakest face's sharpness relative to the burst's best, 0-1
-    eyes_open: bool
+    score: float  # weakest face's sharpness relative to the burst's best, 0-1 (whole frame if no face)
+    eyes_open: bool | None  # None for photos ranked without a face
     rank: int = 0  # 1 = best in burst
     is_candidate: bool = False  # close enough to the best to keep, see rank_burst
+    exposure_issue: str | None = None  # e.g. "black frame", see scoring/exposure.py
+
+    @property
+    def is_good(self) -> bool:
+        """No closed eyes and no exposure problem"""
+        return self.eyes_open is not False and self.exposure_issue is None

@@ -18,6 +18,7 @@ from models.photo_group import CapturedPhoto, Event
 from models.face_score import FaceScore, RankedPhoto
 from models.report_photo import ReportPhoto
 from models.photo_face import PhotoFace
+from models.photo_metrics import PhotoMetrics
 from collections import defaultdict
 from typing import Optional, Any
 from pathlib import Path
@@ -93,6 +94,9 @@ class Catalog:
         for column in ("burst_rank", "eyes_open", "is_candidate"):
             if column not in photo_columns:
                 self.cursor.execute(f"ALTER TABLE photos ADD COLUMN {column} INTEGER")
+        # Catalogs created before exposure scoring
+        if "exposure_issue" not in photo_columns:
+            self.cursor.execute("ALTER TABLE photos ADD COLUMN exposure_issue TEXT")
         # capture_time is ISO 8601 text, so this index serves time-ordered scans per camera
         self.cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_photos_camera_time ON photos(camera_model, capture_time)"
@@ -169,6 +173,25 @@ class Catalog:
             method TEXT NOT NULL,
             score REAL,
             PRIMARY KEY (face_box_id, method),
+            FOREIGN KEY (face_box_id) REFERENCES face_boxes(id)
+            )
+        """)
+        # Whole-frame exposure and sharpness, one row per photo (exposure step)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS photo_metrics(
+            image_hash TEXT PRIMARY KEY,
+            brightness REAL,
+            clipped REAL,
+            crushed REAL,
+            sharpness REAL,
+            FOREIGN KEY (image_hash) REFERENCES photos(image_hash)
+            )
+        """)
+        # Mean brightness of each face box (exposure step)
+        self.cursor.execute("""
+            CREATE TABLE IF NOT EXISTS face_exposure(
+            face_box_id INTEGER PRIMARY KEY,
+            brightness REAL,
             FOREIGN KEY (face_box_id) REFERENCES face_boxes(id)
             )
         """)
@@ -714,6 +737,74 @@ class Catalog:
         ).fetchall()
         return [FaceScore.from_sql_row(row) for row in results]
 
+    def insert_photo_exposure(self, metrics: PhotoMetrics | None, faces: list[tuple[int, float]]):
+        """Stores one photo's whole-frame metrics (if given) and its (face_box_id, brightness) rows."""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        with self.catalog_connection:
+            if metrics is not None:
+                self.cursor.execute(
+                    "INSERT OR REPLACE INTO photo_metrics (image_hash, brightness, clipped, crushed, sharpness) "
+                    "VALUES (?, ?, ?, ?, ?)",
+                    (metrics.image_hash, metrics.brightness, metrics.clipped, metrics.crushed, metrics.sharpness),
+                )
+            self.cursor.executemany(
+                "INSERT OR REPLACE INTO face_exposure (face_box_id, brightness) VALUES (?, ?)", faces
+            )
+
+    def get_photo_metric_hashes(self) -> set[str]:
+        """Returns back the photos the exposure step has measured"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        return {row["image_hash"] for row in self.cursor.execute("SELECT image_hash FROM photo_metrics")}
+
+    def get_face_exposure_ids(self) -> set[int]:
+        """Returns back the face boxes whose brightness is measured"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        return {row["face_box_id"] for row in self.cursor.execute("SELECT face_box_id FROM face_exposure")}
+
+    def get_photo_widths(self) -> dict[str, int | None]:
+        """Returns back each photo's stored width, to scale face boxes onto a smaller read"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        return {row["image_hash"]: row["x_resolution"] for row in self.cursor.execute(
+            "SELECT image_hash, x_resolution FROM photos")}
+
+    def get_photo_metrics(self, hashes: list[str]) -> dict[str, PhotoMetrics]:
+        """Returns back the measured photos among hashes"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        if not hashes:
+            return {}
+        placeholders = ",".join("?" * len(hashes))
+        rows = self.cursor.execute(
+            f"SELECT * FROM photo_metrics WHERE image_hash IN ({placeholders})", hashes
+        ).fetchall()
+        return {row["image_hash"]: PhotoMetrics.from_sql_row(row) for row in rows}
+
+    def get_face_brightness(self, hashes: list[str], min_confidence: float = 0) -> dict[str, list[float]]:
+        """Returns back the brightness of each real face (at or above min_confidence), by photo"""
+        if self.cursor is None or self.catalog_connection is None:
+            raise ValueError("[catalog.py]cursor/catalog_connection is None")
+        if not hashes:
+            return {}
+        placeholders = ",".join("?" * len(hashes))
+        rows = self.cursor.execute(
+            f"""
+            SELECT b.image_hash, e.brightness
+            FROM face_exposure e
+            JOIN face_boxes f ON f.id = e.face_box_id
+            JOIN bounding_boxes b ON b.id = f.parent_box_id
+            WHERE b.image_hash IN ({placeholders}) AND f.name != 'No Faces Found' AND f.confidence >= ?
+            """,
+            (*hashes, min_confidence),
+        ).fetchall()
+        faces: defaultdict[str, list[float]] = defaultdict(list)
+        for row in rows:
+            faces[row["image_hash"]].append(row["brightness"])
+        return dict(faces)
+
     def update_burst_ranking(self, ranked: list[RankedPhoto]):
         """Saves each photo's score, rank, eyes open and candidate flags, and marks the rank 1
         photo as its burst's best. The burst is found through photo_group_members, so
@@ -726,7 +817,8 @@ class Catalog:
         with self.catalog_connection:
             self.cursor.executemany(
                 """
-                UPDATE photos SET final_score = ?, burst_rank = ?, eyes_open = ?, is_candidate = ?
+                UPDATE photos SET final_score = ?, burst_rank = ?, eyes_open = ?, is_candidate = ?,
+                    exposure_issue = ?
                 WHERE image_hash = ?
                 """,
                 [
@@ -735,6 +827,7 @@ class Catalog:
                         photo.rank,
                         photo.eyes_open,
                         photo.is_candidate,
+                        photo.exposure_issue,
                         photo.image_hash,
                     )
                     for photo in ranked
@@ -749,13 +842,14 @@ class Catalog:
             )
 
     def clear_burst_ranking(self):
-        """Clears every photo's score, rank, eyes open and candidate flags before a new ranking."""
+        """Clears every photo's score, rank, eyes open, candidate and exposure flags before a new ranking."""
         if self.cursor is None or self.catalog_connection is None:
             raise ValueError("[catalog.py]cursor/catalog_connection is None")
         with self.catalog_connection:
             self.cursor.execute("""
                 UPDATE photos
-                SET final_score = NULL, burst_rank = NULL, eyes_open = NULL, is_candidate = NULL
+                SET final_score = NULL, burst_rank = NULL, eyes_open = NULL, is_candidate = NULL,
+                    exposure_issue = NULL
                 """)
 
     def delete_orphan_face_boxes(self) -> int:
@@ -766,7 +860,7 @@ class Catalog:
         orphans = "SELECT id FROM face_boxes WHERE parent_box_id IS NULL"
         with self.catalog_connection:
             # Children first, the foreign keys point at face_boxes
-            for table in ("face_embeddings", "face_landmarks", "face_scores"):
+            for table in ("face_embeddings", "face_landmarks", "face_scores", "face_exposure"):
                 self.cursor.execute(
                     f"DELETE FROM {table} WHERE face_box_id IN ({orphans})"
                 )
@@ -781,7 +875,8 @@ class Catalog:
         rows = self.cursor.execute(
             """
             SELECT p.image_hash, p.image_path, p.camera_model, p.capture_time, p.culled_status,
-                   p.final_score, p.burst_rank, p.eyes_open, p.is_candidate, p.x_resolution AS width, p.y_resolution AS height,
+                   p.final_score, p.burst_rank, p.eyes_open, p.is_candidate, p.exposure_issue,
+                   p.x_resolution AS width, p.y_resolution AS height,
                    g.id AS burst_id, g.start_time AS burst_start,
                    e.id AS event_id, e.start_time AS event_start, e.end_time AS event_end,
                    (SELECT count(*) FROM bounding_boxes b
@@ -984,6 +1079,7 @@ class Catalog:
             cursor.execute(f"DELETE FROM face_landmarks WHERE face_box_id IN ({faces})")
             cursor.execute(f"DELETE FROM face_embeddings WHERE face_box_id IN ({faces})")
             cursor.execute(f"DELETE FROM face_scores WHERE face_box_id IN ({faces})")
+            cursor.execute(f"DELETE FROM face_exposure WHERE face_box_id IN ({faces})")
             cursor.execute(f"DELETE FROM face_boxes WHERE id IN ({faces})")
             redone = ["faces"]
             if step == "objects":

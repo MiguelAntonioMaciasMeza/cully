@@ -32,6 +32,10 @@ let toastTimer = null;
 
 // ---------- Helpers ----------
 
+function capitalize(text) {
+  return text.charAt(0).toUpperCase() + text.slice(1);
+}
+
 /** Calls the API. Returns the JSON reply, throws Error(message) on failure. */
 async function api(method, url, body) {
   const options = { method, headers: {} };
@@ -83,7 +87,8 @@ function toast(message) {
 function renderSummary(s) {
   const parts = [
     [s.photos, "photos"], [s.events, "events"], [s.bursts, "bursts"],
-    [s.candidates, "candidates", "good"], [s.eyes_closed, "eyes closed"], [s.unranked, "unranked"],
+    [s.candidates, "candidates", "good"], [s.eyes_closed, "eyes closed"], [s.exposure_issues, "exposure issues"],
+    [s.unranked, "unranked"],
     [s.kept, "kept", "good"], [s.rejected, "rejected"], [s.unreviewed, "unreviewed"],
   ];
   summaryEl.replaceChildren();
@@ -123,6 +128,9 @@ function cardEl(photo, burstId) {
     badges.append(el("span", "badge", photo.score.toFixed(2)));
   }
   if (photo.eyes_open === false) badges.append(el("span", "badge bad", "Eyes closed"));
+  if (photo.exposure_issue) badges.append(el("span", "badge bad", capitalize(photo.exposure_issue)));
+  //Ranked on whole-frame sharpness, not a face
+  if (photo.rank !== null && photo.face_count === 0) badges.append(el("span", "badge muted", "No face"));
   if (photo.unranked_reason) badges.append(el("span", "badge muted", photo.unranked_reason));
 
   const caption = el("span", "caption");
@@ -417,6 +425,12 @@ async function openDetail(hash) {
   const size = photo.width && photo.height ? `${photo.width} × ${photo.height}` : "unknown size";
   const meta = [photo.camera || "unknown camera", shortTime(photo.capture_time), size];
   if (photo.rank !== null) meta.push(`rank #${photo.rank}`, `score ${photo.score.toFixed(2)}`);
+  if (photo.rank !== null && photo.face_count === 0) meta.push("ranked on whole-frame sharpness");
+  if (photo.exposure) {
+    const e = photo.exposure;
+    meta.push(`exposure: ${photo.exposure_issue ?? "ok"} (brightness ${e.brightness.toFixed(0)}, `
+      + `${e.clipped.toFixed(1)}% blown, ${e.crushed.toFixed(1)}% black)`);
+  }
   if (photo.unranked_reason) meta.push(`Unranked: ${photo.unranked_reason}`);
   meta.push(photo.path);
   detailMeta.textContent = meta.join(" · ");
@@ -851,7 +865,7 @@ async function loadStaleness() {
 }
 
 $("stale-rerank").addEventListener("click", async () => {
-  if (await runWith({ steps: ["sharpness", "ranking"] })) openRunPanel();
+  if (await runWith({ steps: ["sharpness", "exposure", "ranking"] })) openRunPanel();
 });
 
 $("stale-redo").addEventListener("click", async () => {
