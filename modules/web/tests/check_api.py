@@ -372,7 +372,8 @@ def test_export_kept_photos():
         out = Path(folder) / "exports"
         put_settings(client, {"export_folder": str(out)})
         #Nothing kept yet
-        assert client.get("/api/export").get_json() == {"kept": 0, "undecided": 1, "folder": str(out), "rating": 3}
+        assert client.get("/api/export").get_json() == {"kept": 0, "rejected": 0, "undecided": 1, "folder": str(out),
+                                                       "rating": 3, "mode": "copy"}
         assert client.post("/api/export", json={}).status_code == 400
 
         #Keep the 2 photos that aren't suggestions, the suggestion stays undecided
@@ -407,6 +408,36 @@ def test_export_kept_photos():
         assert len(list(event.iterdir())) == 3
         rated = (event / "burst_1.jpg").read_bytes()
         assert b'xmp:Rating="5"' in rated and b'xmp:Rating="3"' not in rated
+
+
+def test_export_sidecars_only():
+    with tempfile.TemporaryDirectory() as folder:
+        client, _, hashes, _ = make_app(Path(folder))
+        photos = Path(folder)
+        #burst_0 already has the editor's own sidecar
+        (photos / "burst_0.jpg.xmp").write_text("<darktable history/>")
+        for image_hash, status in zip(hashes, ("keep", "keep", "reject")):
+            put_status(client, image_hash, {"status": status})
+        before = (photos / "burst_1.jpg").read_bytes()
+
+        assert client.post("/api/export", json={"mode": "nope"}).status_code == 400
+        assert client.post("/api/export", json={"mode": "sidecars"}).status_code == 202
+        final = wait_for_run(client)
+        assert final["exit_code"] == 0, final["log"][-10:]
+        assert final["finished"][0]["result"].startswith("2 sidecars written next to the originals, 1 skipped"), final["finished"]
+        assert 'xmp:Rating="3"' in (photos / "burst_1.jpg.xmp").read_text()
+        assert 'xmp:Rating="-1"' in (photos / "burst_2.jpg.xmp").read_text()
+        assert (photos / "burst_0.jpg.xmp").read_text() == "<darktable history/>", "editor's sidecar untouched"
+        assert not (photos / "burst_1.xmp").exists(), "JPEGs only get the darktable name"
+        assert (photos / "burst_1.jpg").read_bytes() == before, "originals unchanged"
+        assert not (photos / "exports").exists() and client.get("/api/export").get_json()["mode"] == "sidecars"
+
+        #Cleared photos lose the sidecar Cully wrote
+        put_status(client, hashes[1], {"status": None})
+        client.post("/api/export", json={})
+        again = wait_for_run(client)
+        assert "1 cleared" in again["finished"][0]["result"], again["finished"]
+        assert not (photos / "burst_1.jpg.xmp").exists()
 
 
 # ---------- Real catalog (only with --catalog) ----------

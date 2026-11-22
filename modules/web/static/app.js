@@ -1020,25 +1020,51 @@ settingsPanel.addEventListener("keydown", (event) => {
 const exportEl = $("export");
 let exportReady = false; // something is kept and nothing is running
 
+let exportInfo = null; // last GET /api/export
+
+function exportMode() {
+  return exportEl.querySelector("input[name=export-mode]:checked").value;
+}
+
 /** Fills the export popover with the current counts. */
 async function loadExport() {
   $("export-start").disabled = true;
-  let info;
   try {
-    info = await api("GET", "/api/export");
+    exportInfo = await api("GET", "/api/export");
   } catch (error) {
     $("export-text").textContent = `Couldn't count the kept photos: ${error.message}`;
     return;
   }
-  $("export-text").textContent = info.kept
-    ? `Copy ${plural(info.kept, "kept photo")} to ${info.folder}, one folder per event, rated ${info.rating}★ for darktable and Lightroom. Photos already there only get their rating updated.`
-    : "Nothing is marked keep yet. Press K on a photo to keep it.";
-  $("export-undecided").textContent = info.undecided
-    ? `${plural(info.undecided, "suggestion")} ${info.undecided === 1 ? "is" : "are"} still undecided and won't be copied.`
-    : "";
-  exportReady = info.kept > 0;
+  exportEl.querySelector(`input[value=${exportInfo.mode}]`).checked = true;
+  showExport();
+}
+
+/** The popover's text and button for the chosen mode. */
+function showExport() {
+  const info = exportInfo;
+  if (!info) return;
+  let text, note;
+  if (exportMode() === "copy") {
+    exportReady = info.kept > 0;
+    text = info.kept
+      ? `Copy ${plural(info.kept, "kept photo")} to ${info.folder}, one folder per event, rated ${info.rating}★ for darktable and Lightroom. Photos already there only get their rating updated.`
+      : "Nothing is marked keep yet. Press K on a photo to keep it.";
+    note = info.undecided
+      ? `${plural(info.undecided, "suggestion")} ${info.undecided === 1 ? "is" : "are"} still undecided and won't be copied.`
+      : "";
+  } else {
+    exportReady = info.kept + info.rejected > 0;
+    text = exportReady
+      ? `Write a rating file next to each original: ${plural(info.kept, "kept photo")} get ${info.rating}★, ${plural(info.rejected, "rejected photo")} show as rejected. Nothing is copied. Import the original folders into your editor.`
+      : "Nothing is marked keep or reject yet.";
+    note = "JPEG ratings this way reach darktable only, Lightroom ignores JPEG sidecars. Sidecars your editor already made are left alone.";
+  }
+  $("export-text").textContent = text;
+  $("export-undecided").textContent = note;
   $("export-start").disabled = !exportReady || runButton.dataset.running === "1";
 }
+
+exportEl.addEventListener("change", showExport);
 
 exportEl.addEventListener("toggle", (event) => {
   if (event.newState === "open") loadExport();
@@ -1046,7 +1072,7 @@ exportEl.addEventListener("toggle", (event) => {
 
 $("export-start").addEventListener("click", async () => {
   try {
-    const state = await api("POST", "/api/export", {});
+    const state = await api("POST", "/api/export", { mode: exportMode() });
     exportEl.hidePopover();
     renderRun(state);
     followRun();

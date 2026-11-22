@@ -36,7 +36,12 @@
     </dl>
   </div>
   <div id="export" class="help export" popover aria-labelledby="export-title">
-    <h2 id="export-title">Export kept photos</h2>
+    <h2 id="export-title">Export your choices</h2>
+    <fieldset class="export-modes">
+      <legend>How</legend>
+      <label><input type="radio" name="export-mode" value="copy" checked> Copy kept photos</label>
+      <label><input type="radio" name="export-mode" value="sidecars"> Sidecars only (no copies)</label>
+    </fieldset>
     <p id="export-text">Loading…</p>
     <p id="export-undecided" class="muted"></p>
     <button type="button" id="export-start" class="primary" disabled>Export</button>

@@ -34,8 +34,12 @@ def packet(rating: int) -> str:
 
 
 def sidecar_names(photo: Path) -> list[Path]:
-    """Returns back both sidecar names: IMG_1.xmp (Lightroom) and IMG_1.CR2.xmp (darktable)"""
-    return [photo.with_suffix(".xmp"), photo.with_name(photo.name + ".xmp")]
+    """Returns back the sidecar names: IMG_1.xmp (Lightroom) and IMG_1.CR2.xmp (darktable).
+    JPEGs only get IMG_1.JPG.xmp, Lightroom ignores JPEG sidecars and IMG_1.xmp may belong to the RAW"""
+    darktable = photo.with_name(photo.name + ".xmp")
+    if photo.suffix.lower() in JPEG_SUFFIXES:
+        return [darktable]
+    return [photo.with_suffix(".xmp"), darktable]
 
 
 def _replace(path: Path, data: bytes) -> None:
@@ -56,6 +60,16 @@ def write_sidecars(photo: Path, rating: int) -> bool:
     for sidecar in sidecars:
         _replace(sidecar, packet(rating).encode())
     return True
+
+
+def remove_sidecars(photo: Path) -> bool:
+    """Deletes photo's sidecars that Cully wrote. Returns back True if any were deleted"""
+    removed = False
+    for sidecar in sidecar_names(photo):
+        if sidecar.exists() and CULLY_NS in sidecar.read_text(errors="replace"):
+            sidecar.unlink()
+            removed = True
+    return removed
 
 
 def _segments(data: bytes):

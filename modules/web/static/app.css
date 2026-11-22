@@ -249,6 +249,10 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
 .export p { margin: 0 0 10px; }
 .export .muted { color: var(--muted); font-size: 13px; }
 .export .muted:empty { display: none; }
+.export-modes { border: none; margin: 0 0 10px; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.export-modes legend { padding: 0; margin-bottom: 4px; color: var(--muted); font-size: 13px; }
+.export-modes label { display: flex; gap: 8px; align-items: center; cursor: pointer; }
+.export-modes input { accent-color: var(--good); margin: 0; }
 .export button { border: 1px solid var(--good); border-radius: 6px; padding: 4px 14px; cursor: pointer;
                  background: var(--good); color: var(--surface); font-weight: 600; }
 .export button:disabled { opacity: .5; cursor: default; }

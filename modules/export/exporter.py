@@ -15,9 +15,10 @@ from ingest.exif_reader import SUPPORTED_SUFFIXES
 from models.report_photo import ReportPhoto
 from utils.files import copy_safely
 from utils.progress import track
-from utils.xmp import write_rating
+from utils.xmp import remove_sidecars, write_rating, write_sidecars
 
 NO_DATE = "No date"  # folder for kept photos in no event (no capture time)
+REJECTED = -1  # the XMP rating editors show as rejected
 RECORD = ".cully-export.json"  # in each event folder: original photo hash -> exported file name
 
 
@@ -78,3 +79,22 @@ def export_keepers(photos: list[ReportPhoto], dest: Path, rating: int, show_prog
         else:
             print(f"[exporter.py] Rating not written for {target.name}, it has a sidecar or XMP Cully can't change")
     return copied, rated
+
+
+def write_sidecars_in_place(photos: list[ReportPhoto], rating: int, show_progress: bool = False) -> tuple[int, int, int]:
+    """Writes a sidecar next to each original instead of copying: keep gets rating, reject shows as
+    rejected. Undecided photos lose a sidecar Cully wrote before. Returns back (written, skipped, cleared)"""
+    written = skipped = cleared = 0
+    for photo in track(photos, "export", show_progress, describe=lambda p: Path(p.image_path).name):
+        source = Path(photo.image_path)
+        if not source.is_file():
+            continue
+        if photo.culled_status is None:
+            cleared += remove_sidecars(source)
+            continue
+        if write_sidecars(source, rating if photo.culled_status == "keep" else REJECTED):
+            written += 1
+        else:
+            #The editor already has its own sidecar for this photo, leave it alone
+            skipped += 1
+    return written, skipped, cleared

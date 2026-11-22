@@ -61,6 +61,8 @@ DEFAULT_SETTINGS = {
     "export_folder": "~/Pictures/Cully/Exports",
     # Stars the exported copies get, so darktable and Lightroom show them as kept
     "export_rating": 3,
+    # copy: kept photos are copied and rated. sidecars: a rating file next to each original, no copies
+    "export_mode": "copy",
 }
 
 # How the settings page shows each setting, by "key" or "group.key". Every setting needs an entry,
@@ -133,7 +135,11 @@ SETTINGS_INFO = {
                       "help": "Export copies your kept photos here, one folder per event."},
     "export_rating": {"group": "Folders", "label": "Kept photo rating", "type": "integer",
                       "min": 1, "max": 5, "step": 1, "unit": "★", "applies": "next_export",
-                      "help": "Stars the exported copies get, read by darktable and Lightroom. Originals are never changed."},
+                      "help": "Stars kept photos get, read by darktable and Lightroom."},
+    "export_mode": {"group": "Folders", "label": "Export as", "type": "choice", "choices": ["copy", "sidecars"],
+                    "applies": "next_export",
+                    "help": "copy: kept photos are copied to the export folder and rated. sidecars: no copies, a rating file "
+                            "is written next to each kept or rejected original (JPEG ratings this way reach darktable only)."},
     # Not wired up yet, kept off the page
     "saliency_scale": {"hidden": True},
     "saliency_model": {"hidden": True},
@@ -174,6 +180,7 @@ class Settings:
     import_folder: str = field(default=DEFAULT_SETTINGS["import_folder"])
     export_folder: str = field(default=DEFAULT_SETTINGS["export_folder"])
     export_rating: int = field(default=DEFAULT_SETTINGS["export_rating"])
+    export_mode: str = field(default=DEFAULT_SETTINGS["export_mode"])
 
     def __post_init__(self):
         # Check if directory exists, if not create

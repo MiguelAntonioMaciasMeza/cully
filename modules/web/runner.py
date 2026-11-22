@@ -45,12 +45,15 @@ class Runner:
         self.changed.notify_all()
 
     def start(self, folder: Path | None, steps: list[str], embeddings: bool = False,
-              import_to: Path | None = None, redo: str | None = None, export_to: Path | None = None) -> None:
+              import_to: Path | None = None, redo: str | None = None, export_to: Path | None = None,
+              export_mode: str | None = None) -> None:
         """Starts a run in the background. folder can be None for catalog-only runs (redo, re-rank).
-        With export_to, runs the export (python -m export) instead of main.py. Raises RunBusy if one is already going."""
-        if export_to is not None:
+        With export_mode, runs the export (python -m export) instead of main.py. Raises RunBusy if one is already going."""
+        if export_mode is not None:
             #Export loads no models, it's its own small script
-            command = [sys.executable, "-u", "-m", "export", str(export_to), "--progress-json"]
+            command = [sys.executable, "-u", "-m", "export", "--mode", export_mode, "--progress-json"]
+            if export_to is not None:
+                command.append(str(export_to))
             steps = ["export"]
         else:
             command = [sys.executable, "-u", "main.py"]

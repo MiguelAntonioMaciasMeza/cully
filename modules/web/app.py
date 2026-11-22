@@ -445,12 +445,14 @@ def register_routes(app: Flask) -> None:
         return get_runner().snapshot(), 202
 
     def export_counts() -> dict:
-        """Returns back how many photos are kept, how many suggestions are still undecided, and where export copies to"""
+        """Returns back the kept and rejected counts, undecided suggestions, and the export settings"""
         photos = report_photos()
         kept = sum(p.culled_status == "keep" for p in photos)
+        rejected = sum(p.culled_status == "reject" for p in photos)
         undecided = sum(p.is_candidate and p.culled_status is None for p in photos)
         settings = get_settings()
-        return {"kept": kept, "undecided": undecided, "folder": settings.export_folder, "rating": settings.export_rating}
+        return {"kept": kept, "rejected": rejected, "undecided": undecided, "folder": settings.export_folder,
+                "rating": settings.export_rating, "mode": settings.export_mode}
 
     @app.get("/api/export")
     def export_info():
@@ -458,15 +460,26 @@ def register_routes(app: Flask) -> None:
 
     @app.post("/api/export")
     def start_export():
-        """Copies the kept photos to the export_folder setting, one folder per event. Needs no torch"""
-        json_body()
+        """Exports with {"mode": "copy" | "sidecars"} (default: the export_mode setting), which is
+        remembered. copy: kept photos into the export folder. sidecars: rating files next to the originals.
+        Needs no torch"""
+        body = json_body()
+        settings = get_settings()
+        mode = body.get("mode", settings.export_mode)
+        if mode not in ("copy", "sidecars"):
+            abort(400, "mode must be copy or sidecars")
         counts = export_counts()
-        if not counts["kept"]:
-            abort(400, "No photos are marked keep yet")
+        if not counts["kept"] and (mode == "copy" or not counts["rejected"]):
+            abort(400, "No photos are marked keep yet" if mode == "copy" else "No photos are marked keep or reject yet")
+        export_to = Path(settings.export_folder).expanduser() if mode == "copy" else None
         try:
-            get_runner().start(None, ["export"], export_to=Path(counts["folder"]).expanduser())
+            get_runner().start(None, ["export"], export_to=export_to, export_mode=mode)
         except RunBusy:
             abort(409, "A run is already going")
+        #Remembered, so the popover opens on the same choice next time. The run got the mode directly
+        if mode != settings.export_mode:
+            settings.update({"export_mode": mode})
+            settings.save()
         return get_runner().snapshot(), 202
 
     @app.get("/api/staleness")
