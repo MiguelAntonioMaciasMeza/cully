@@ -9,12 +9,11 @@ Date: 2026-11-16
 
 from dataclasses import dataclass, field
 
-import cv2
-
 from config.settings import Settings
 from detector.face_embeddings import FaceEmbedder
 from models.catalog import Catalog
 from utils.progress import file_name, track
+from utils.read_image import read_image
 
 
 @dataclass
@@ -41,7 +40,7 @@ class EmbeddingStep:
         for image_hash, boxes in track(pending.items(), "embeddings", self.show_progress,
                                    describe=lambda item: file_name(self.catalog.get_photo_path_by_hash(item[0]))):
             path = self.catalog.get_photo_path_by_hash(image_hash)
-            img = cv2.imread(path) if path else None
+            img = read_image(path)
             if img is None:
                 print(f"[embeddings.py] Skipping {path}, could not read it")
                 continue

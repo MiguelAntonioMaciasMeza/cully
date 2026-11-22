@@ -34,7 +34,7 @@ def packet(rating: int) -> str:
 
 
 def sidecar_names(photo: Path) -> list[Path]:
-    """Returns back the sidecar names: IMG_1.xmp (Lightroom) and IMG_1.CR2.xmp (darktable).
+    """Returns back the sidecar names: IMG_1.xmp (Lightroom) and IMG_1.CR2.xmp / IMG_1.NEF.xmp (darktable).
     JPEGs only get IMG_1.JPG.xmp, Lightroom ignores JPEG sidecars and IMG_1.xmp may belong to the RAW"""
     darktable = photo.with_name(photo.name + ".xmp")
     if photo.suffix.lower() in JPEG_SUFFIXES:

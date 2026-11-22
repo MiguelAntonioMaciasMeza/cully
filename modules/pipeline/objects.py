@@ -17,6 +17,7 @@ from utils.steps import fingerprint
 from detector.one_shot_object import Objects
 from models.catalog import Catalog
 from utils.progress import file_name, track
+from utils.read_image import read_image
 
 
 @dataclass
@@ -39,7 +40,7 @@ class ObjectStep:
         for image_hash in track(sorted(pending), "objects", self.show_progress,
                                    describe=lambda item: file_name(self.catalog.get_photo_path_by_hash(item))):
             path = self.catalog.get_photo_path_by_hash(image_hash)
-            img = cv2.imread(path) if path else None
+            img = read_image(path)
             if img is None:
                 print(f"[objects.py] Skipping {path}, could not read it")
                 continue

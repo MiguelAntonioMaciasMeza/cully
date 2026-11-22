@@ -8,10 +8,11 @@ from enum import Enum
 from typing import cast
 import rawpy
 import cv2
+from utils.read_image import RAW_SUFFIXES
 DEBUG = False
 # logging.getLogger("exif").setLevel(logging.ERROR)
 
-SUPPORTED_SUFFIXES = {".jpg", ".jpeg", ".cr2"}
+SUPPORTED_SUFFIXES = {".jpg", ".jpeg"} | RAW_SUFFIXES
 
 
 class uot(Enum):
@@ -42,7 +43,7 @@ class ExifReader:
         try:
             if suffix in (".jpg", ".jpeg"):
                 self._read_jpg_exif(path)
-            elif suffix == ".cr2":
+            elif suffix in RAW_SUFFIXES:
                 if DEBUG:
                     print("[exif_reader.py]Reading raw exif")
                 self._read_raw_exif(path)

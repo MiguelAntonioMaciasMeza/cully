@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 import pprint
 from pathlib import Path
+from utils.read_image import read_image
 
 DEBUG = False
 BaseOptions = mediapipe.tasks.BaseOptions
@@ -59,7 +60,7 @@ class FaceLandmarker:
     def detect_landmarks(
         self, image_path: str, image_hash: str, bounding_box: list[BoundingBox]
     ) -> list[FaceLandmarks] | None:
-        img = cv2.imread(image_path)
+        img = read_image(image_path)
         results: list[FaceLandmarks] = list()
         if img is None:
             raise FileNotFoundError(f"Could not read image at; {image_path}")

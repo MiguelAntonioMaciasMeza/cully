@@ -3,13 +3,14 @@ from pathlib import Path
 from models.catalog import Catalog
 from models.boundingbox import BoundingBox
 from collections import defaultdict
+from utils.read_image import read_image
 
 OUT_DIR = Path("/home/ripley/Documents/FinalRepo/Unused Images/People/Face_boxes")
 
 
 def draw_face_boxes(image_path: Path, boxes: list[BoundingBox]) -> None:
-    image = cv2.imread(str(image_path))
-    if image is None:  # missing file, or a format cv2 can't read (e.g. .cr2)
+    image = read_image(image_path)
+    if image is None:  # missing or unreadable file
         print(f"[SKIP] could not read {image_path}")
         return
 

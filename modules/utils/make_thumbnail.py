@@ -6,8 +6,8 @@ Author: Miguel Macias
 Date: 2026-11-16
 """
 from pathlib import Path
-import numpy as np
 import cv2
+from utils.read_image import read_image
 
 
 def make_thumbnail(source: Path, target: Path, size:int=360) -> bool:
@@ -16,15 +16,8 @@ def make_thumbnail(source: Path, target: Path, size:int=360) -> bool:
         return True
     if not source.is_file():
         return False
-    img: np.ndarray | None
-    if source.suffix.lower() == ".cr2":
-        import rawpy  # only needed for RAW files
-
-        with rawpy.imread(str(source)) as raw:
-            img = cv2.cvtColor(raw.postprocess(half_size=True), cv2.COLOR_RGB2BGR)
-    else:
-        # Decode at 1/4 size, the photos are far bigger than a thumbnail
-        img = cv2.imread(str(source), cv2.IMREAD_REDUCED_COLOR_4)
+    # Decode at 1/4 size, the photos are far bigger than a thumbnail
+    img = read_image(source, cv2.IMREAD_REDUCED_COLOR_4)
     if img is None:
         return False
     h, w = img.shape[:2]

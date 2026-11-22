@@ -12,7 +12,7 @@ from utils.steps import fingerprint
 from models.catalog import Catalog
 from scoring.laplacian import laplacian_sharpness
 from utils.progress import file_name, track
-import cv2
+from utils.read_image import read_image
 
 
 @dataclass
@@ -40,7 +40,10 @@ class SharpnessStep:
                 raise ValueError(
                     f"[sharpness.py] get_photo_path_by_hash returns back none on hash {image_hash}"
                 )
-            img = cv2.imread(path)
+            img = read_image(path)
+            if img is None:
+                print(f"[sharpness.py] Skipping {path}, could not read it")
+                continue
 
             # Grade each box for image
             for box in boxes:

@@ -1,7 +1,7 @@
 """
 File: Cully/modules/web/images.py
 Description: Makes and caches the images the web app serves: thumbnails, previews and face crops.
-Each is made once, on first request, and kept by image hash (or face box id). OpenCV and rawpy only.
+Each is made once, on first request, and kept by image hash (or face box id). OpenCV only, CR2 goes through utils/read_image.py.
 Author: Miguel Macias
 Date: 2026-11-17
 """
@@ -13,6 +13,7 @@ import cv2
 import numpy as np
 
 from utils.make_thumbnail import make_thumbnail
+from utils.read_image import read_image
 
 FACE_MARGIN = 0.15  # extra room around a face box, as a share of its size
 JPEG_QUALITY = 90
@@ -40,15 +41,9 @@ def cached_resize(source: Path, target: Path, size: int) -> Path | None:
 
 
 def read_full(source: Path) -> np.ndarray | None:
-    """Reads a photo at full size, CR2 included. None if it can't be read."""
-    if not source.is_file():
-        return None
-    if source.suffix.lower() == ".cr2":
-        import rawpy  # only needed for RAW files
-
-        with rawpy.imread(str(source)) as raw:
-            return cv2.cvtColor(raw.postprocess(), cv2.COLOR_RGB2BGR)
-    return cv2.imread(str(source))
+    """Reads a photo at full size, RAW included. None if it can't be read."""
+    # Same reader as the pipeline, so face boxes line up with the photo
+    return read_image(source)
 
 
 def cached_face(source: Path, box: tuple[int, int, int, int], target: Path) -> Path | None:

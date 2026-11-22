@@ -16,6 +16,7 @@ from config.settings import Settings
 from models.boundingbox import BoundingBox
 from pathlib import Path
 import cv2
+from utils.read_image import read_image
 DEBUG = False
 BaseOptions = mediapipe.tasks.BaseOptions
 MPFaceDetector = mediapipe.tasks.vision.FaceDetector
@@ -38,7 +39,7 @@ class FaceDetector:
         self.detector = MPFaceDetector.create_from_options(options)
         
     def detect_face(self, img_path: str, bounding_box: list[BoundingBox]) -> list[BoundingBox]:
-        img = cv2.imread(img_path)
+        img = read_image(img_path)
         if img is None:
             raise FileNotFoundError(f"Coult not read image at: {img_path}")
 
