@@ -220,7 +220,7 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
 .setting .hint { grid-column: 1 / -1; margin: 0; font-size: 12px; }
 .setting .hint.muted { color: var(--muted); }
 .setting input[type="number"] { width: 90px; }
-.setting input[type="text"] { grid-column: 1 / -1; width: 100%; }
+.setting input[type="text"], .setting select[name="YOLOModel"] { grid-column: 1 / -1; width: 100%; }
 .setting input, .setting select { font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--border);
                                    border-radius: 6px; padding: 3px 6px; }
 .setting input[type="checkbox"] { width: 18px; height: 18px; accent-color: var(--good); }
@@ -232,6 +232,8 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
 #settings-rerank:not([hidden]) + #settings-redo { margin-left: 0; }
 .settings-note.good { color: var(--good); font-weight: 600; }
 .settings-note.bad { color: var(--bad); font-weight: 600; }
+.model-status { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
+.model-status button[hidden] { display: none; }
 /* Basic / Advanced tabs. Basic hides the advanced rows, and any group left empty */
 .settings-tabs { display: flex; gap: 4px; padding-top: 12px; border-bottom: 1px solid var(--border); }
 .settings-tabs button { padding: 6px 14px; border: 1px solid transparent; border-bottom: none; border-radius: 8px 8px 0 0;

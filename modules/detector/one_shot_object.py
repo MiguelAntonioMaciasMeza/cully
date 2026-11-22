@@ -28,6 +28,9 @@ class Objects:
         # Ultralytics downloads official weights to this path if the file is missing
         model_path = Path(self.config.models_path) / "object_detection" / self.settings.YOLOModel
         self.model = YOLO(model_path)
+        #Faces are only searched inside person boxes, a model without people can't feed the later steps
+        if "person" not in self.model.names.values():
+            raise SystemExit(f"[one_shot_object.py] {self.settings.YOLOModel} has no 'person' class, pick another model in Settings")
         self.model.to(self.settings.hardware["device"])
 
     def detect_objects(self, img: np.ndarray,inverse_scale: float) -> list[BoundingBox] | None:

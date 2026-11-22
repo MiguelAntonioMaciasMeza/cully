@@ -296,7 +296,7 @@ def test_settings_read_and_update():
     with tempfile.TemporaryDirectory() as folder:
         client, *_ = make_app(Path(folder))
         data = client.get("/api/settings").get_json()
-        assert set(data) == {"values", "defaults", "info", "order", "path"}, set(data)
+        assert set(data) == {"values", "defaults", "info", "order", "path", "models"}, set(data)
         assert data["values"] == data["defaults"], "a fresh settings file has the defaults"
 
         response = put_settings(client, {"ranking": {"candidate_margin": 0.8}, "face_threshold": 60})
@@ -438,6 +438,56 @@ def test_export_sidecars_only():
         again = wait_for_run(client)
         assert "1 cleared" in again["finished"][0]["result"], again["finished"]
         assert not (photos / "burst_1.jpg.xmp").exists()
+
+
+# ---------- Person detector models ----------
+
+def test_model_list_and_choice():
+    with tempfile.TemporaryDirectory() as folder:
+        models = Path(folder) / "models"
+        models.mkdir()
+        (models / "yolo26n.pt").write_bytes(b"x" * 2_000_000)
+        (models / "my_people.pt").write_bytes(b"x")
+        make_app(Path(folder))  # builds the catalog
+        client = create_app(Path(folder) / "catalog.db", Path(folder) / "settings.json", Path(folder) / "cache",
+                            models).test_client()
+        listing = client.get("/api/settings").get_json()["models"]
+        official = {m["name"]: m["mb"] for m in listing["official"]}
+        assert len(official) == 10 and official["yolo26n.pt"] == 2.0 and official["yolo11x.pt"] is None, official
+        assert [m["name"] for m in listing["custom"]] == ["my_people.pt"], listing["custom"]
+
+        #Official models can be picked before they're downloaded, custom ones must be in the folder
+        assert put_settings(client, {"YOLOModel": "yolo26s.pt"}).status_code == 200
+        assert put_settings(client, {"YOLOModel": "my_people.pt"}).status_code == 200
+        for bad in ("nope.pt", "../evil.pt", "yolo26n"):
+            assert put_settings(client, {"YOLOModel": bad}).status_code == 400, bad
+
+        post = lambda name: client.post("/api/models/download", json={"name": name})
+        assert post("my_people.pt").status_code == 400   # not official
+        assert post("yolo26n.pt").status_code == 400     # already installed
+        runner = client.application.config["RUNNER"]
+        runner.state.running = True  # pretend
+        try:
+            assert post("yolo26s.pt").status_code == 409
+        finally:
+            runner.state.running = False
+
+
+def test_model_download():
+    from detector import download_model
+    with tempfile.TemporaryDirectory() as folder:
+        #A local file stands in for GitHub, no network
+        release = Path(folder) / "release"
+        release.mkdir()
+        (release / "yolo26s.pt").write_bytes(b"w" * 3_000_000)
+        before = download_model.RELEASE_URL
+        download_model.RELEASE_URL = release.as_uri()
+        try:
+            path = download_model.download("yolo26s.pt", Path(folder) / "models")
+        finally:
+            download_model.RELEASE_URL = before
+        assert path.read_bytes() == b"w" * 3_000_000
+        assert [p.name for p in path.parent.iterdir()] == ["yolo26s.pt"], "no temp file left"
 
 
 # ---------- Real catalog (only with --catalog) ----------

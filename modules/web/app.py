@@ -18,6 +18,7 @@ from platformdirs import user_cache_dir
 from werkzeug.exceptions import HTTPException
 
 from config.settings import DEFAULT_SETTINGS, SETTINGS_INFO, Settings
+from config.yolo_models import OFFICIAL, list_models, models_dir
 from ingest.exif_reader import SUPPORTED_SUFFIXES
 from ingest.importer import card_photos, import_folder
 from models.catalog import Catalog
@@ -87,13 +88,15 @@ def create_app(
     catalog_path: str | Path | None = None,
     settings_path: str | Path | None = None,
     cache_dir: str | Path | None = None,
+    model_dir: str | Path | None = None,
 ) -> Flask:
-    """Builds the app. No paths given means the real catalog, settings and cache."""
+    """Builds the app. No paths given means the real catalog, settings, cache and models folder."""
     app = Flask(__name__)
     app.config.update(
         CATALOG_PATH=catalog_path,
         SETTINGS_PATH=settings_path,
         CACHE_DIR=Path(cache_dir) if cache_dir else Path(user_cache_dir("cully")),
+        MODEL_DIR=Path(model_dir) if model_dir else models_dir(),
         #One runner per app, it writes to the same catalog the page reads
         RUNNER=Runner(catalog_path, settings_path=settings_path),
     )
@@ -402,7 +405,8 @@ def register_routes(app: Flask) -> None:
         """Returns back what the settings form needs: current values, defaults and how to show each"""
         #Flask sorts JSON keys, so the form's order is sent as a list
         return {"values": settings.to_dict(), "defaults": DEFAULT_SETTINGS, "info": SETTINGS_INFO,
-                "order": list(SETTINGS_INFO), "path": str(settings.path)}
+                "order": list(SETTINGS_INFO), "path": str(settings.path),
+                "models": list_models(current_app.config["MODEL_DIR"])}
 
     def refuse_while_running() -> None:
         #A run read its settings when it started, changing them mid-run would make the results disagree
@@ -419,6 +423,10 @@ def register_routes(app: Flask) -> None:
         body = json_body()
         refuse_while_running()
         settings = get_settings()
+        #A custom model has to be in the models folder, official ones can be downloaded later
+        model = body.get("YOLOModel")
+        if isinstance(model, str) and model not in OFFICIAL and not (current_app.config["MODEL_DIR"] / model).is_file():
+            abort(400, f"[settings.py]No model called {model} in {current_app.config['MODEL_DIR']}")
         try:
             settings.update(body)
         except ValueError as error:
@@ -480,6 +488,21 @@ def register_routes(app: Flask) -> None:
         if mode != settings.export_mode:
             settings.update({"export_mode": mode})
             settings.save()
+        return get_runner().snapshot(), 202
+
+    @app.post("/api/models/download")
+    def download_model():
+        """Downloads an official YOLO model into the models folder, shown in the Run panel. 409 if busy"""
+        name = json_body().get("name")
+        if name not in OFFICIAL:
+            abort(400, f"Not an official model: {name}")
+        folder = current_app.config["MODEL_DIR"]
+        if (folder / name).is_file():
+            abort(400, f"{name} is already installed")
+        try:
+            get_runner().download_model(name, folder)
+        except RunBusy:
+            abort(409, "A run is already going")
         return get_runner().snapshot(), 202
 
     @app.get("/api/staleness")

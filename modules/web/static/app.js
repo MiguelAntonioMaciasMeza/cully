@@ -578,12 +578,17 @@ function renderRun(state) {
   $("stale-redo").disabled = state.running;
   settingsLocked = state.running;
   updateSettingsButtons();
+  if (state.steps?.includes("download") && settingsData) showDownload(state);
+  else updateModelStatus();
   $("export-start").disabled = state.running || !exportReady;
   if (!state.started_at) return; // nothing has run since the server started
   runProgress.hidden = false;
 
   const exporting = state.steps.includes("export");
-  $("run-folder").textContent = exporting
+  const downloading = state.steps.includes("download");
+  $("run-folder").textContent = downloading
+    ? (state.running ? "Downloading a model" : "Last model download")
+    : exporting
     ? (state.running ? "Exporting kept photos" : "Last export")
     : `${state.running ? "Running on" : "Last run on"} ${state.folder ?? "the whole catalog"}`;
   $("run-steps").replaceChildren(...state.steps.map((step) => stepLine(step, state)));
@@ -794,7 +799,9 @@ function settingRow(key, info) {
   if (value !== fallback) row.classList.add("changed");
 
   let control;
-  if (info.type === "boolean") {
+  if (info.type === "model") {
+    control = modelSelect(value);
+  } else if (info.type === "boolean") {
     control = el("input");
     control.type = "checkbox";
     control.checked = value;
@@ -827,8 +834,117 @@ function settingRow(key, info) {
   const help = el("p", "hint", info.help);
   const meta = el("p", "hint muted", `${APPLIES[info.applies]} Default: ${showValue(fallback)}.`);
   row.append(label, control, help, meta);
+  if (info.type === "model") row.append(modelStatus());
   return row;
 }
+
+// ---------- Person detector models ----------
+
+/** A drop-down of the official models by family, then the custom ones. */
+function modelSelect(value) {
+  const { official, custom } = settingsData.models;
+  const select = el("select");
+  const groups = new Map();
+  for (const model of official) {
+    if (!groups.has(model.family)) groups.set(model.family, el("optgroup"));
+    groups.get(model.family).label = model.family;
+    const option = el("option", "", `${model.family} ${model.size}${model.mb ? "" : " (not downloaded)"}`);
+    option.value = model.name;
+    groups.get(model.family).append(option);
+  }
+  select.append(...groups.values());
+  if (custom.length) {
+    const yours = el("optgroup");
+    yours.label = "Your models";
+    for (const model of custom) {
+      const option = el("option", "", model.name);
+      option.value = model.name;
+      yours.append(option);
+    }
+    select.append(yours);
+  }
+  //A saved model that's no longer in the folder still shows, so the form doesn't change it silently
+  if (![...select.options].some((o) => o.value === value)) {
+    const missing = el("option", "", `${value} (missing)`);
+    missing.value = value;
+    select.append(missing);
+  }
+  select.value = value;
+  return select;
+}
+
+/** The note and Download button under the model drop-down. */
+function modelStatus() {
+  const box = el("div", "hint model-status");
+  const text = el("span");
+  text.id = "model-status";
+  const download = el("button", "", "Download");
+  download.type = "button";
+  download.id = "model-download";
+  download.addEventListener("click", downloadModel);
+  box.append(text, download);
+  return box;
+}
+
+function selectedModel() {
+  const name = settingsForm.elements.YOLOModel?.value;
+  const { official, custom } = settingsData.models;
+  return { name, official: official.find((m) => m.name === name), custom: custom.find((m) => m.name === name) };
+}
+
+/** Says what the chosen model is and whether it's installed. */
+function updateModelStatus(progress = "") {
+  const text = $("model-status");
+  if (!text) return;
+  const { official, custom } = selectedModel();
+  const download = $("model-download");
+  download.hidden = !official || !!official.mb || !!progress;
+  download.disabled = settingsLocked;
+  if (progress) text.textContent = progress;
+  else if (official) {
+    text.textContent = official.mb
+      ? `${official.note} Installed (${official.mb} MB).`
+      : `${official.note} Not downloaded yet: download it now, or it downloads when detection next runs.`;
+  } else if (custom) {
+    text.textContent = `Your model (${custom.mb} MB). It needs a 'person' class.`;
+  } else {
+    text.textContent = `Not found in ${settingsData.models.folder}.`;
+  }
+  //Custom trained models go here
+  text.title = `Models folder: ${settingsData.models.folder}`;
+}
+
+async function downloadModel() {
+  try {
+    const state = await api("POST", "/api/models/download", { name: selectedModel().name });
+    renderRun(state);
+    followRun();
+  } catch (error) {
+    settingsNote(`Couldn't download: ${error.message}`, "bad");
+  }
+}
+
+/** Download progress in the Settings panel; reloads the model list when it's done. */
+async function showDownload(state) {
+  if (state.running) {
+    const mb = state.total ? `${state.done} of ${state.total} MB` : "starting…";
+    updateModelStatus(`Downloading ${state.file || "model"}: ${mb}`);
+    return;
+  }
+  if (downloadShownFor === state.started_at) return;
+  downloadShownFor = state.started_at;
+  try {
+    settingsData.models = (await api("GET", "/api/settings")).models;
+  } catch {
+    //Keeps the old list, the next open reloads it
+  }
+  const select = settingsForm.elements.YOLOModel;
+  if (select) select.replaceWith(Object.assign(modelSelect(select.value), { id: select.id, name: select.name }));
+  updateModelStatus();
+  if (state.error) settingsNote(state.error, "bad");
+  else settingsNote(state.finished[0]?.result ?? "Downloaded.", "good");
+}
+let downloadShownFor = null;
 
 /** Builds the form from settingsData, one fieldset per group in the order they first appear. */
 function renderSettings() {
@@ -844,10 +960,11 @@ function renderSettings() {
     set.append(el("legend", "", name), ...rows);
     return set;
   });
-  const where = el("p", "meta", `Saved in ${settingsData.path}`);
+  const where = el("p", "meta", `Saved in ${settingsData.path}. Custom trained models go in ${settingsData.models.folder}.`);
   settingsForm.replaceChildren(...basicNotes(), ...sets, where);
   dirty.clear();
   updateSettingsButtons();
+  updateModelStatus();
 }
 
 /** Basic tab only: a tip, and a heads-up when advanced settings aren't at their defaults. */
@@ -956,6 +1073,7 @@ function changedSettings() {
 settingsForm.addEventListener("input", (event) => {
   const row = event.target.closest(".setting");
   if (!row) return;
+  if (row.dataset.key === "YOLOModel") updateModelStatus();
   dirty.add(row.dataset.key);
   row.classList.add("dirty");
   settingsNote(`${plural(dirty.size, "unsaved change")}`, "");

@@ -5,6 +5,8 @@ import copy
 import json
 import re
 
+from config.yolo_models import is_model_name
+
 
 # u2net takes in 320,320 images natively, however if we would like
 # we can send images past that resolution, just choose an input scale
@@ -73,9 +75,10 @@ DEFAULT_SETTINGS = {
 #   next_export the next export
 # basic: shown on the Basic tab too, Advanced shows everything
 SETTINGS_INFO = {
-    "YOLOModel": {"group": "Detection", "label": "Person detector model", "type": "choice",
-                  "choices": [m.value for m in YOLOModel], "applies": "new_photos",
-                  "help": "The YOLO model that finds people in each photo."},
+    #type model: picked from config/yolo_models.py's list plus custom .pt files, see /api/settings
+    "YOLOModel": {"group": "Detection", "label": "Person detector model", "type": "model", "applies": "new_photos",
+                  "help": "The YOLO model that finds people in each photo. Bigger models find more small or far away "
+                          "people but run slower. A custom trained model needs a 'person' class."},
     "detection.person_threshold": {"group": "Detection", "label": "Person confidence", "type": "integer",
                                    "min": 0, "max": 100, "step": 1, "unit": "%", "applies": "new_photos",
                                    "help": "How sure the detector must be that a box is a person. Lower finds more people, and more mistakes."},
@@ -255,6 +258,8 @@ class Settings:
         for setting in ("import_folder", "export_folder"):
             if not self.value(setting).strip():
                 raise ValueError(f"[settings.py]{setting} can't be empty")
+        if not is_model_name(self.YOLOModel):
+            raise ValueError(f"[settings.py]YOLOModel must be a .pt file name, got {self.YOLOModel!r}")
         #Settings with a fixed list of values
         for key, info in SETTINGS_INFO.items():
             if info.get("type") == "choice" and self.value(key) not in info["choices"]:

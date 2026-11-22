@@ -51,30 +51,43 @@ class Runner:
         With export_mode, runs the export (python -m export) instead of main.py. Raises RunBusy if one is already going."""
         if export_mode is not None:
             #Export loads no models, it's its own small script
-            command = [sys.executable, "-u", "-m", "export", "--mode", export_mode, "--progress-json"]
+            args = ["-m", "export", "--mode", export_mode]
             if export_to is not None:
-                command.append(str(export_to))
-            steps = ["export"]
-        else:
-            command = [sys.executable, "-u", "main.py"]
-            if folder is not None:
-                command.append(str(folder))
-            command += ["--progress-json", "--steps", ",".join(steps)]
-            if embeddings:
-                command.append("--embeddings")
-            if import_to is not None:
-                command += ["--import-to", str(import_to)]
-            if redo is not None:
-                command += ["--redo", redo]
-        if self.catalog_path:
-            command += ["--catalog", str(self.catalog_path)]
-        if self.settings_path:
-            command += ["--settings", str(self.settings_path)]
+                args.append(str(export_to))
+            self._launch(args + self._catalog_args(), None, ["export"])
+            return
+        args = ["main.py"]
+        if folder is not None:
+            args.append(str(folder))
+        args += ["--steps", ",".join(steps)]
+        if embeddings:
+            args.append("--embeddings")
+        if import_to is not None:
+            args += ["--import-to", str(import_to)]
+        if redo is not None:
+            args += ["--redo", redo]
+        self._launch(args + self._catalog_args(), folder, steps)
 
+    def download_model(self, name: str, folder: Path) -> None:
+        """Downloads an official YOLO model in the background, shown like a one-step run"""
+        self._launch(["-m", "detector.download_model", name, "--folder", str(folder)], None, ["download"])
+
+    def _catalog_args(self) -> list[str]:
+        """The catalog and settings this server uses, so runs work on the same ones"""
+        args = []
+        if self.catalog_path:
+            args += ["--catalog", str(self.catalog_path)]
+        if self.settings_path:
+            args += ["--settings", str(self.settings_path)]
+        return args
+
+    def _launch(self, args: list[str], folder: Path | None, steps: list[str]) -> None:
+        """Starts python args with --progress-json and follows it. Raises RunBusy if a run is going"""
+        command = [sys.executable, "-u", *args, "--progress-json"]
         with self.changed:
             if self.state.running:
                 raise RunBusy("A run is already going")
-            #Own session (process group), so cancel can stop main.py and anything it starts
+            #Own session (process group), so cancel can stop the run and anything it starts
             self.process = subprocess.Popen(
                 command, cwd=self.modules_dir, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True, bufsize=1, start_new_session=True,
@@ -89,7 +102,7 @@ class Runner:
         log_reader = threading.Thread(target=self._read_log, args=(process,), daemon=True)
         log_reader.start()
         threading.Thread(target=self._read_events, args=(process, log_reader), daemon=True).start()
-        print(f"[runner.py] Started run on {folder or 'the catalog'} (pid {process.pid})")
+        print(f"[runner.py] Started {' '.join(args[:2])} on {folder or 'the catalog'} (pid {process.pid})")
 
     def _read_log(self, process: subprocess.Popen) -> None:
         """Keeps main.py's stderr as the run's log"""
