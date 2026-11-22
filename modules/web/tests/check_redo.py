@@ -1,7 +1,7 @@
 """
 File: Cully/modules/web/tests/check_redo.py
 Description: Checks redo tracking: step fingerprints, the first-run backfill, out-of-date counts after a
-settings change, what --redo deletes (and keeps), and a real redo run. Temp catalogs and temp settings
+settings change, what --redo deletes (and keeps), and real redo runs (plain and --all). Temp catalogs and temp settings
 files only, never the real ones.
 
 Run from Cully/modules (the real run needs venv-main, it's skipped elsewhere):
@@ -167,6 +167,8 @@ def test_redo_run_validation():
             {"redo": "objects", "steps": ["objects"]},   # redo without its step
             {"steps": ["redo", "objects"]},               # step without redo
             {"steps": ["scan"]},                          # scan needs a folder
+            {"all": True},                                # all without redo
+            {"redo": "objects", "all": "yes"},            # all must be a bool
         ]
         for body in bad:
             response = client.post("/api/run", json=body)
@@ -205,6 +207,30 @@ def test_real_redo_run():
         assert "3 photos cleared for objects" in done.stdout + done.stderr, done.stdout[-500:]
         after = client.get("/api/staleness").get_json()
         assert after["any"] is False, after
+        assert client.get(f"/api/photos/{_first_hash(client)}").get_json()["culled_status"] == "reject"
+
+
+def test_real_redo_all_run():
+    if importlib.util.find_spec("torch") is None:
+        raise Skip("main.py needs torch, run this in venv-main")
+    with tempfile.TemporaryDirectory() as folder:
+        photos = Path(folder) / "photos"
+        photos.mkdir()
+        for sample in sorted(SAMPLES.glob("*.jpg"))[:3]:
+            shutil.copy(sample, photos / sample.name)
+        catalog_path, settings_path = Path(folder) / "catalog.db", Path(folder) / "settings.json"
+        common = ["--catalog", str(catalog_path), "--settings", str(settings_path)]
+        run_main(str(photos), *common)
+
+        client = create_app(catalog_path, settings_path, Path(folder) / "cache").test_client()
+        client.put(f"/api/photos/{_first_hash(client)}/status", json={"status": "reject"})
+
+        #Nothing changed, so a plain redo clears nothing and --all clears every photo
+        plain = run_main("--redo", "objects", *common)
+        assert "0 photos cleared for objects" in plain.stdout + plain.stderr, plain.stdout[-500:]
+        done = run_main("--redo", "objects", "--all", *common)
+        assert "3 photos cleared for objects" in done.stdout + done.stderr, done.stdout[-500:]
+        assert "objects: 3 new photos" in done.stdout + done.stderr, done.stdout[-500:]
         assert client.get(f"/api/photos/{_first_hash(client)}").get_json()["culled_status"] == "reject"
 
 

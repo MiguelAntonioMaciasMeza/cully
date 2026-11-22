@@ -46,7 +46,7 @@ class Runner:
 
     def start(self, folder: Path | None, steps: list[str], embeddings: bool = False,
               import_to: Path | None = None, redo: str | None = None, export_to: Path | None = None,
-              export_mode: str | None = None) -> None:
+              export_mode: str | None = None, redo_all: bool = False) -> None:
         """Starts a run in the background. folder can be None for catalog-only runs (redo, re-rank).
         With export_mode, runs the export (python -m export) instead of main.py. Raises RunBusy if one is already going."""
         if export_mode is not None:
@@ -66,6 +66,8 @@ class Runner:
             args += ["--import-to", str(import_to)]
         if redo is not None:
             args += ["--redo", redo]
+            if redo_all:
+                args.append("--all")
         self._launch(args + self._catalog_args(), folder, steps)
 
     def download_model(self, name: str, folder: Path) -> None:

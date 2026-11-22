@@ -368,6 +368,12 @@ def register_routes(app: Flask) -> None:
             abort(400, f"steps must be a list from: {', '.join(STEPS)}")
         if ("redo" in steps) != (redo is not None):
             abort(400, "The redo step and \"redo\" go together")
+        #"all" redoes every photo, not just out-of-date ones
+        redo_all = body.get("all", False)
+        if not isinstance(redo_all, bool):
+            abort(400, "all must be true or false")
+        if redo_all and redo is None:
+            abort(400, "\"all\" needs \"redo\"")
 
         #Only scan and import read a folder
         folder = body.get("folder")
@@ -396,7 +402,8 @@ def register_routes(app: Flask) -> None:
         if not pipeline_ready():
             abort(400, "This server can't run the pipeline. Start it with venv-main.")
         try:
-            get_runner().start(Path(folder) if folder else None, steps, embeddings, import_to, redo)
+            get_runner().start(Path(folder) if folder else None, steps, embeddings, import_to, redo,
+                               redo_all=redo_all)
         except RunBusy:
             abort(409, "A run is already going")
         return get_runner().snapshot(), 202

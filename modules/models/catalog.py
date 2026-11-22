@@ -930,6 +930,10 @@ class Catalog:
         self.record_catalog_run("tracking_started", "-")
         return True
 
+    def processed_photos(self, step: str) -> set[str]:
+        """Returns back every photo step has results for, current or not"""
+        return self._processed_hashes(step)
+
     def stale_photos(self, step: str, fingerprint: str) -> set[str]:
         """Returns back photos whose step results were made with other settings than fingerprint"""
         if self.cursor is None or self.catalog_connection is None:

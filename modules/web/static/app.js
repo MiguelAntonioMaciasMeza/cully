@@ -1017,6 +1017,7 @@ function updateSettingsButtons() {
   $("settings-reset").disabled = settingsLocked;
   $("settings-rerank").disabled = settingsLocked;
   $("settings-redo").disabled = settingsLocked;
+  $("settings-redo-all").disabled = settingsLocked;
   const lockNote = "A run is going. Settings can change once it's done.";
   if (settingsLocked) settingsNote(lockNote, "");
   else if ($("settings-note").textContent === lockNote) settingsNote("", "");
@@ -1125,6 +1126,21 @@ showSettingsView(savedSettingsView());
 
 $("settings-rerank").addEventListener("click", () => $("stale-rerank").click());
 $("settings-redo").addEventListener("click", () => $("stale-redo").click());
+$("settings-redo-all").addEventListener("click", async () => {
+  //The run reads the saved settings, so unsaved edits would be ignored
+  if (dirty.size) {
+    settingsNote("Save or reset your changes before redoing everything.", "bad");
+    return;
+  }
+  //Redoes every photo, settings changed or not, so warn first
+  const ok = confirm(
+    "Force redo everything?\n\n"
+    + "Every photo's people, faces, eye checks and sharpness scores are deleted and found again "
+    + "from scratch, even if nothing changed. Then everything is re-ranked.\n\n"
+    + "Your keep/reject choices stay. This runs on the whole catalog and can take a long time."
+  );
+  if (ok && (await runWith({ redo: "objects", all: true }))) openRunPanel();
+});
 settingsButton.addEventListener("click", () => (settingsPanel.hidden ? openSettings() : closeSettings()));
 settingsPanel.querySelector(".close").addEventListener("click", () => closeSettings());
 settingsPanel.addEventListener("keydown", (event) => {

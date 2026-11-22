@@ -6,10 +6,11 @@ except sharpness and ranking, which redo the whole catalog.
 Run from Cully/modules with venv-main:
     python main.py <folder> [--catalog PATH] [--embeddings] [--steps scan,objects,...] [--progress]
     [--progress-json] [--import-to DEST] [--settings PATH]
-    python main.py --redo objects|faces [--catalog PATH] [--settings PATH]
+    python main.py --redo objects|faces [--all] [--catalog PATH] [--settings PATH]
 With --import-to, photos in <folder> and its sub-folders (a memory card) are copied to DEST first,
 and DEST is scanned instead. --redo deletes the objects (or faces) of every photo made with older
-settings, then the steps after it redo them. Keep/reject choices are never touched.
+settings, then the steps after it redo them. With --all, every processed photo is redone, settings
+changed or not. Keep/reject choices are never touched.
 Author: Miguel Macias
 Date: 2026-11-16
 """
@@ -58,6 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("-p", "--progress", action="store_true", help="show a live progress line for each step")
     parser.add_argument("--import-to", type=Path, help="copy the folder's photos (and its sub-folders') here first, then scan this folder")
     parser.add_argument("--redo", choices=PHOTO_STEPS, help="redo this step (and the ones after it) for photos made with older settings")
+    parser.add_argument("--all", action="store_true", help="with --redo: redo every processed photo, not just out-of-date ones")
     parser.add_argument("--settings", type=Path, help="settings file to use (default: ~/.config/cully/settings.json)")
     parser.add_argument("--progress-json", action="store_true",
                         help="write progress as JSON lines on stdout, everything else goes to stderr")
@@ -72,6 +74,8 @@ def parse_args() -> argparse.Namespace:
         args.steps = default_steps(args.embeddings, importing=args.import_to is not None, redo=args.redo is not None)
     if "import" in args.steps and args.import_to is None:
         parser.error("the import step needs --import-to DEST")
+    if args.all and args.redo is None:
+        parser.error("--all needs --redo objects|faces")
     if "redo" in args.steps and args.redo is None:
         parser.error("the redo step needs --redo objects|faces")
     if ("scan" in args.steps or "import" in args.steps) and args.folder is None:
@@ -112,7 +116,11 @@ def main():
                 copied = import_photos(args.folder, args.import_to, catalog.get_all_hashes(), show)
                 result = f"{copied} new photos copied to {args.import_to}"
             case "redo":
-                stale = catalog.stale_photos(args.redo, fingerprint(settings, args.redo))
+                #--all forces every photo, otherwise only ones made with older settings
+                if args.all:
+                    stale = catalog.processed_photos(args.redo)
+                else:
+                    stale = catalog.stale_photos(args.redo, fingerprint(settings, args.redo))
                 catalog.delete_detections(stale, args.redo)
                 result = f"{len(stale)} photos cleared for {args.redo}"
             case "scan":

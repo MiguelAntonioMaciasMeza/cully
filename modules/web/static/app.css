@@ -230,6 +230,8 @@ body[data-filter="unranked"] :is(.lane, .burst, .event):not(:has(.card[data-rank
 .settings-actions button[hidden] { display: none; }
 #settings-rerank, #settings-redo { margin-left: auto; border-color: var(--rank); color: var(--rank); font-weight: 600; }
 #settings-rerank:not([hidden]) + #settings-redo { margin-left: 0; }
+/* Forces a full redo, so it looks like a warning */
+#settings-redo-all { border-color: var(--bad); color: var(--bad); }
 .settings-note.good { color: var(--good); font-weight: 600; }
 .settings-note.bad { color: var(--bad); font-weight: 600; }
 .model-status { display: flex; gap: 10px; align-items: center; justify-content: space-between; }
