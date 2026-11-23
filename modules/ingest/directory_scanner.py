@@ -24,7 +24,13 @@ class DirectoryScanner:
     def scan(self, directory: Path, show_progress: bool = False) -> list[Photo]:
         """Adds supported photos in directory to the catalog and returns them."""
         photos: list[Photo] = []
-        paths = [p for p in sorted(directory.iterdir()) if p.suffix.lower() in SUPPORTED_SUFFIXES]
+        paths: list[Path] = []
+        for p in sorted(directory.iterdir()):
+            if p.suffix.lower() in SUPPORTED_SUFFIXES:
+                paths.append(p)
+            elif p.is_file() and not p.name.startswith("."):
+                # Hidden files (.DS_Store, ...) and folders are skipped quietly
+                print(f"[directory_scanner.py] Skipping unsupported file: {p.name}")
         for path in track(paths, "scan", show_progress, describe=lambda p: p.name):
             photo = Photo(path)
             self.catalog.insert_photo(photo)
