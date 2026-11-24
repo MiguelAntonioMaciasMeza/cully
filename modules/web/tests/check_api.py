@@ -370,7 +370,8 @@ def test_export_kept_photos():
     with tempfile.TemporaryDirectory() as folder:
         client, _, hashes, _ = make_app(Path(folder))
         out = Path(folder) / "exports"
-        put_settings(client, {"export_folder": str(out)})
+        #This test is about copies, sidecars is the default
+        put_settings(client, {"export_folder": str(out), "export_mode": "copy"})
         #Nothing kept yet
         assert client.get("/api/export").get_json() == {"kept": 0, "rejected": 0, "undecided": 1, "folder": str(out),
                                                        "rating": 3, "mode": "copy"}

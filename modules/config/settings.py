@@ -33,10 +33,10 @@ DEFAULT_SETTINGS = {
     "min_dimension": {"saliency": 640, "face": 400},  # not used yet
     # Size (longest side) a crop is scaled to before each step scores it
     "crop_size": {"sharpness": 300},
-    "object_threshold": 75,
+    "object_threshold": 70,
     "face_threshold": 70,  # below this, face boxes are mostly the back of a head or clothing
     # How far apart shots can be and still count as one burst / one event
-    "grouping": {"burst_gap_seconds": 5, "event_gap_minutes": 30},
+    "grouping": {"burst_gap_seconds": 3, "event_gap_minutes": 120},
     # Burst ranking: eyes are closed under eye_gate of the person's best EAR or under ear_floor,
     # and faces in two frames are the same person when their boxes overlap by face_match_iou.
     # eye_check: false ranks on sharpness only, for posed eyes-down shots.
@@ -56,7 +56,7 @@ DEFAULT_SETTINGS = {
     "hardware": {"device": "cuda"},
     # object_scale: images are shrunk by this before YOLO (used by ObjectStep)
     # person_threshold: YOLO confidence for person boxes, other objects use object_threshold
-    "detection": {"object_scale": 0.5, "person_threshold": 50},
+    "detection": {"object_scale": 0.5, "person_threshold": 60},
     # Exposure problems penalise a photo like closed eyes (scoring/exposure.py). Brightness is 0-255.
     # black_frame / white_frame: % of pixels crushed / blown out that makes a failed frame.
     # face_dark / face_bright: limits on a face's mean brightness.
@@ -70,7 +70,7 @@ DEFAULT_SETTINGS = {
     # Stars the exported copies get, so darktable and Lightroom show them as kept
     "export_rating": 3,
     # copy: kept photos are copied and rated. sidecars: a rating file next to each original, no copies
-    "export_mode": "copy",
+    "export_mode": "sidecars",
 }
 
 # How the settings page shows each setting, by "key" or "group.key". Every setting needs an entry,
