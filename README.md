@@ -2,6 +2,64 @@
 
 Culls photo shoots: finds the people and faces in each photo, groups photos into events and bursts, ranks each burst by sharpness and open eyes, and suggests which frames to keep.
 
+## Installation
+
+Tested on Linux Mint 22.3 with Python 3.12. A working install needs about 9 GB of disk space, mostly for the Python packages.
+
+### 1. Clone and install dependencies
+
+```bash
+git clone https://github.com/MiguelAntonioMaciasMeza/cully
+cd cully
+python3.12 -m venv venv-main
+venv-main/bin/pip install -r requirements.txt
+```
+
+### 2. Download the MediaPipe models
+
+These are **not** downloaded automatically; without them the first run stops at the face detection step.
+
+```bash
+M=~/.local/share/cully/models/mediapipe
+mkdir -p $M/face_detection $M/face_landmarker
+curl -L -o $M/face_detection/blaze_face_full_range.tflite \
+  https://storage.googleapis.com/mediapipe-models/face_detector/blaze_face_full_range/float16/1/blaze_face_full_range.tflite
+curl -L -o $M/face_landmarker/face_landmarker.task \
+  https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task
+```
+
+Model information: [Face Detector (BlazeFace full-range)](https://developers.google.com/edge/mediapipe/solutions/vision/face_detector) · [Face Landmarker](https://developers.google.com/edge/mediapipe/solutions/vision/face_landmarker)
+
+### 3. GPU or CPU
+
+The default device is `cuda`, which needs an NVIDIA GPU with a working driver. **Without one, set the device to `cpu` before the first run**, or the run stops at object detection with `RuntimeError: No CUDA GPUs are available`. On a new install (this replaces any existing settings file):
+
+```bash
+mkdir -p ~/.config/cully
+echo '{"hardware": {"device": "cpu"}}' > ~/.config/cully/settings.json
+```
+
+Cully fills in the other settings with their defaults. Later you can change it in the web app (Settings → Advanced → Hardware → Device). Only object detection (YOLO) uses the GPU, so the CPU is nearly as fast.
+
+### 4. First run
+
+The first run needs internet access: the default YOLO model (`yolo26n.pt`) downloads automatically. Other YOLO models can be downloaded from the web app's Settings page. After that, Cully works fully offline.
+
+## Usage
+
+```bash
+cd modules
+../venv-main/bin/python main.py /path/to/photos --catalog myshoot   # run the pipeline
+../venv-main/bin/python -m web --catalog myshoot                    # open http://127.0.0.1:5000/
+```
+
+`python -m web` needs an existing catalog (the `main.py` run creates it), or pass `--create`.
+
+### Notes
+
+- **Embeddings (`--embeddings`, optional):** the face model weights download automatically on first use. On the GPU this currently needs extra CUDA packages not in `requirements.txt` (`tensorflow[and-cuda]`); run with `CUDA_VISIBLE_DEVICES=""` to use the CPU instead. Ranking does not use embeddings.
+- **Face grouping** needs a separate environment with older library versions and is not part of the normal run.
+
 ## Web app
 
 Run from `Cully/modules` with **venv-main**:
